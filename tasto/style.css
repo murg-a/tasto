@@ -96,3 +96,7 @@
     padding: 8px 14px; font-family: @font@; font-size: @ui@pt;
 }
 #note-panel button:hover { background-color: @sel@; }
+
+#rightpane stackswitcher button { padding: 6px 12px; border-color: transparent; }
+#rightpane stackswitcher button:checked { background-color: @sel@; border-color: @line@; }
+#rightpane stackswitcher button:checked label { color: @fg@; }

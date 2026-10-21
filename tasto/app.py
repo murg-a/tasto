@@ -117,7 +117,7 @@ MODIFIER_KEYS = ("Shift", "Control", "Alt", "Meta", "Super", "Hyper", "Caps_Lock
                  "Num_Lock", "ISO_Level", "Mode_switch")   # non chiudono la schermata iniziale
 
 DEFAULTS = {"theme": "chiaro", "font": 1, "size": 14, "width": 720, "sidebar": True,
-            "notes": False, "target": 0, "colors": False, "sound": False,
+            "notes": False, "right_page": "scratch", "target": 0, "colors": False, "sound": False,
             "autosave": True, "splash": True, "win": [1280, 800]}
 
 CSS = Path(__file__).with_name("style.css").read_text(encoding="utf-8")
@@ -166,7 +166,7 @@ HELP = [
     ("---", "linea di separazione"),
 ]
 HELP_NOTE = ("I titoli #, ## e ### compaiono nell'indice a sinistra.\n"
-             "Ctrl+F cerca · F8 inserisci · F9 indice · F10 appunti")
+             "Ctrl+F cerca · F8 inserisci · F9 indice · F10 appunti e note")
 
 
 # --- ASCII art per il menu Inserisci ---------------------------------------------
@@ -450,6 +450,8 @@ def load_config():
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
             cfg.update(json.load(f))
+        if cfg["right_page"] not in ("scratch", "footnotes"):
+            cfg["right_page"] = "scratch"
         if cfg["theme"] not in THEMES:
             cfg["theme"] = DEFAULTS["theme"]
         if not (isinstance(cfg["font"], int) and 0 <= cfg["font"] < len(FONTS)):
@@ -474,12 +476,7 @@ def load_notes():
 
 
 def save_json(path, data):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
-    except OSError:
-        pass
+    return write_atomic(path, json.dumps(data, indent=2, ensure_ascii=False))
 
 
 def write_atomic(path, text):
@@ -538,6 +535,7 @@ class Tasto(Gtk.Window):
         self._words = 0
         self._footnote_key = None
         self._editing_note = None
+        self._viewport_restore = 0
         self.set_default_size(*self.cfg["win"])
 
         self.provider = Gtk.CssProvider()
@@ -610,6 +608,11 @@ class Tasto(Gtk.Window):
         self.build_note_editor()
 
         self.connect("key-press-event", self.on_key)
+        # Un acceleratore GTK ha precedenza sulle associazioni di GtkSourceView.
+        accelerators = Gtk.AccelGroup()
+        accelerators.connect(Gdk.KEY_n, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK,
+                             Gtk.AccelFlags.VISIBLE, self.activate_note_shortcut)
+        self.add_accel_group(accelerators)
         self.connect("delete-event", self.on_delete)
 
         if self.cfg["sound"]:
@@ -815,17 +818,33 @@ class Tasto(Gtk.Window):
         notes_sw = Gtk.ScrolledWindow()
         notes_sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         notes_sw.add(self.notes_list)
-        self.right_pane.pack_start(self.pane_title("APPUNTI"), False, False, 0)
-        self.right_pane.pack_start(row, False, False, 0)
-        self.right_pane.pack_start(notes_sw, True, True, 0)
-        self.right_pane.pack_start(self.pane_title("NOTE A MARGINE"), False, False, 0)
+        scratch_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        scratch_page.pack_start(row, False, False, 0)
+        scratch_page.pack_start(notes_sw, True, True, 0)
         self.footnote_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.footnote_list.set_border_width(12)
         footnote_sw = Gtk.ScrolledWindow()
         footnote_sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         footnote_sw.add(self.footnote_list)
-        self.right_pane.pack_start(footnote_sw, True, True, 0)
+        self.right_stack = Gtk.Stack()
+        self.right_stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.right_stack.set_transition_duration(120)
+        self.right_stack.add_titled(scratch_page, "scratch", "Appunti")
+        self.right_stack.add_titled(footnote_sw, "footnotes", "Note")
+        self.right_stack.show_all()
+        self.right_stack.set_visible_child_name(self.cfg["right_page"])
+        self.right_stack.connect("notify::visible-child-name", self.remember_right_page)
+        switcher = Gtk.StackSwitcher()
+        switcher.set_stack(self.right_stack)
+        switcher.set_halign(Gtk.Align.CENTER)
+        switcher.set_margin_top(18)
+        switcher.set_margin_bottom(12)
+        self.right_pane.pack_start(switcher, False, False, 0)
+        self.right_pane.pack_start(self.right_stack, True, True, 0)
         self.rebuild_notes()
+
+    def remember_right_page(self, stack, _property):
+        self.cfg["right_page"] = stack.get_visible_child_name()
 
     def build_bottom_bar(self):
         self.goal = Gtk.ProgressBar()
@@ -881,7 +900,7 @@ class Tasto(Gtk.Window):
             "Carattere, grandezza, larghezza e salvataggio", self.show_settings), 12)
         self.notes_btn = add(self.icon_button(
             ("sidebar-show-right-symbolic", "view-dual-symbolic"), "▥",
-            "Mostra o nascondi gli appunti (F10)", self.toggle_notes))
+            "Mostra o nascondi Appunti e Note (F10)", self.toggle_notes))
 
         self.theme_menu = self.build_theme_menu()
         self.format_menu = self.build_format_menu()
@@ -1598,6 +1617,8 @@ class Tasto(Gtk.Window):
             label.set_ellipsize(Pango.EllipsizeMode.END)
             label.set_max_width_chars(20)
             buttons = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            buttons.pack_start(self.button("✎", "Modifica l'appunto",
+                                           lambda i=i: self.edit_scratch(i)), False, False, 0)
             buttons.pack_start(self.button("↳", "Inserisci nel testo",
                                            lambda i=i: self.note_insert(i)), False, False, 0)
             buttons.pack_start(self.button("×", "Elimina l'appunto",
@@ -1639,14 +1660,52 @@ class Tasto(Gtk.Window):
         save_json(NOTES_PATH, self.notes)
         self.rebuild_notes()
 
+    def document_viewport(self):
+        return (self.editor_sw.get_hadjustment().get_value(),
+                self.editor_sw.get_vadjustment().get_value())
+
+    def restore_document_viewport(self, position):
+        if self._viewport_restore:
+            GLib.source_remove(self._viewport_restore)
+        horizontal = self.editor_sw.get_hadjustment()
+        vertical = self.editor_sw.get_vadjustment()
+        def restore():
+            self._viewport_restore = 0
+            if self.get_realized():
+                horizontal.set_value(position[0])
+                vertical.set_value(position[1])
+            return False
+        # Dopo la validazione del layout, altrimenti GtkTextView riposiziona la vista.
+        self._viewport_restore = GLib.idle_add(restore, priority=GLib.PRIORITY_LOW)
+
     def replace_document(self, text, cursor):
+        position = self.document_viewport()
+        original = self.get_text()
+        # Sostituisce solo l'intervallo cambiato: preserva i mark e il layout
+        # delle righe precedenti, anziché cancellare e ricreare tutto il buffer.
+        first = 0
+        limit = min(len(original), len(text))
+        while first < limit and original[first] == text[first]:
+            first += 1
+        tail = 0
+        while tail < limit - first and original[-tail-1] == text[-tail-1]:
+            tail += 1
+        old_end = len(original) - tail
+        new_end = len(text) - tail
         self.buf.begin_user_action()
         try:
-            self.buf.delete(*self.buf.get_bounds())
-            self.buf.insert(self.buf.get_start_iter(), text)
+            self.buf.delete(self.buf.get_iter_at_offset(first), self.buf.get_iter_at_offset(old_end))
+            self.buf.insert(self.buf.get_iter_at_offset(first), text[first:new_end])
             self.buf.place_cursor(self.buf.get_iter_at_offset(min(cursor, len(text))))
         finally:
             self.buf.end_user_action()
+        self.restore_document_viewport(position)
+
+    def activate_note_shortcut(self, *_):
+        if self._editing_note is not None or self.splash.get_visible():
+            return False
+        self.add_margin_note()
+        return True
 
     def add_margin_note(self):
         cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
@@ -1654,6 +1713,7 @@ class Tasto(Gtk.Window):
         self.replace_document(text, cursor)
         self.close_menu()
         self.cfg["notes"] = True
+        self.right_stack.set_visible_child_name("footnotes")
         self.right_pane.show()
         self.flag(self.notes_btn, True)
         self.schedule_fit()
@@ -1727,8 +1787,8 @@ class Tasto(Gtk.Window):
         actions.set_halign(Gtk.Align.END)
         actions.pack_start(self.button("Annulla", "Annulla le modifiche alla nota (Esc)",
                                        self.cancel_margin_note), False, False, 0)
-        actions.pack_start(self.button("Salva la nota", "Salva la nota (Ctrl+Invio)",
-                                       self.save_margin_note), False, False, 0)
+        self.editor_save_btn = self.button("Salva la nota", "Salva (Ctrl+Invio)", self.save_margin_note)
+        actions.pack_start(self.editor_save_btn, False, False, 0)
         self.note_panel.pack_start(actions, False, False, 0)
         self.note_panel.show_all()
         self.overlay.connect("size-allocate", self.resize_note_editor)
@@ -1746,17 +1806,27 @@ class Tasto(Gtk.Window):
         if len(matches) != 1:
             self.error("Numero di nota assente o duplicato: correggi le definizioni Markdown.")
             return
+        self.open_text_editor(number, matches[0].content, "Nota " + number, "Salva la nota")
+
+    def edit_scratch(self, index):
+        self._scratch_original = self.notes[index]
+        self.open_text_editor(("scratch", index), self.notes[index], "Appunto", "Salva l'appunto")
+
+    def open_text_editor(self, identity, content, title, save_label):
         self.close_menu()
-        self._editing_note = number
+        self._editing_note = identity
         self._note_cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
-        self.note_heading.set_text("Nota " + number)
-        self.note_editor.get_buffer().set_text(matches[0].content)
+        self._editor_viewport = self.document_viewport()
+        self.note_heading.set_text(title)
+        self.editor_save_btn.set_label(save_label)
+        self.note_editor.get_buffer().set_text(content)
         self.note_editor.get_buffer().set_modified(False)
         self.note_status.set_text("Ctrl+Invio per salvare · Esc per annullare")
         self.resize_note_editor()
         self.root.set_sensitive(False)
         self.note_layer.show()
         self.note_editor.grab_focus()
+        self.restore_document_viewport(self._editor_viewport)
 
     def save_margin_note(self):
         if self._editing_note is None:
@@ -1764,9 +1834,22 @@ class Tasto(Gtk.Window):
         buf = self.note_editor.get_buffer()
         content = buf.get_text(*buf.get_bounds(), True)
         try:
-            text = update_note(self.get_text(), self._editing_note, content)
-            self.replace_document(text, self._note_cursor)
-            self.refresh_margin_notes(text)
+            if isinstance(self._editing_note, tuple):
+                index = self._editing_note[1]
+                if index >= len(self.notes) or self.notes[index] != self._scratch_original:
+                    self.note_status.set_text("L'appunto è cambiato. Annulla e riaprilo per modificarlo.")
+                    return
+                updated = self.notes.copy()
+                updated[index] = content
+                if not save_json(NOTES_PATH, updated):
+                    self.note_status.set_text("Salvataggio non riuscito. Il testo resta aperto: riprova.")
+                    return
+                self.notes = updated
+                self.rebuild_notes()
+            else:
+                text = update_note(self.get_text(), self._editing_note, content)
+                self.replace_document(text, self._note_cursor)
+                self.refresh_margin_notes(text)
         except ValueError as error:
             self.note_status.set_text(str(error))
             return
@@ -1777,6 +1860,7 @@ class Tasto(Gtk.Window):
         self._editing_note = None
         self.root.set_sensitive(True)
         self.view.grab_focus()
+        self.restore_document_viewport(self._editor_viewport)
 
     # --- Tastiera e rotella --------------------------------------------------------
 
@@ -1818,6 +1902,8 @@ class Tasto(Gtk.Window):
         if key == Gdk.KEY_Escape and self._menu is not None:
             self.close_menu()
             return True
+        if ctrl and shift and Gdk.keyval_to_lower(key) == Gdk.KEY_n:
+            return self.activate_note_shortcut()
         in_editor = self.get_focus() is self.view
         if (self.cfg["sound"] and in_editor
                 and not state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK)):
@@ -1841,7 +1927,7 @@ class Tasto(Gtk.Window):
             lower = Gdk.keyval_to_lower(key)
             # Il simbolo Shift+7 cambia tra tastiere (es. & oppure /).
             translated = Gdk.Keymap.get_for_display(self.get_display()).translate_keyboard_state(
-                e.hardware_keycode, e.state & ~Gdk.ModifierType.SHIFT_MASK, e.group)
+                e.hardware_keycode, Gdk.ModifierType(e.state & ~Gdk.ModifierType.SHIFT_MASK), e.group)
             base_key = translated[1] if translated[0] else lower
             if not shift:
                 command = {Gdk.KEY_b: "bold", Gdk.KEY_i: "italic", Gdk.KEY_u: "underline",
@@ -1852,9 +1938,6 @@ class Tasto(Gtk.Window):
                 command = "bullet"
             elif base_key == Gdk.KEY_8:
                 command = "number"
-            elif lower == Gdk.KEY_n:
-                self.add_margin_note()
-                return True
             if command:
                 self.format_text(command)
                 return True
@@ -2052,7 +2135,7 @@ class Tasto(Gtk.Window):
 
     def on_delete(self, *_):
         if self._editing_note is not None:
-            self.note_status.set_text("Salva o annulla la nota prima di chiudere Tasto.")
+            self.note_status.set_text("Salva o annulla la modifica prima di chiudere Tasto.")
             self.note_editor.grab_focus()
             return True
         if self.cfg["autosave"]:

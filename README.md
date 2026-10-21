@@ -36,13 +36,13 @@ Questa versione richiede GTK **3**, anche se avevi già installato GTK 4.
 Non servono pip o credenziali. Per aggiornare una copia scaricata con Git,
 chiudi prima Tasto, entra nella cartella del progetto ed esegui `git pull`.
 
-## Funzioni presenti nella base importata
+## Funzioni disponibili
 
 - Schermata iniziale «premi un TASTO», colonna centrata e barre laterali richiudibili.
 - Sette temi, tre famiglie di font, dimensione e larghezza regolabili.
 - Evidenziazione Markdown, indice collassabile (tre livelli), ricerca con anteprime.
 - Conteggi e obiettivo di parole con barra di avanzamento.
-- Appunti persistenti: incolla, copia dalla selezione e inserisci nel documento.
+- Appunti persistenti: incolla, copia dalla selezione, modifica e inserisci nel documento.
 - Menu di elementi ASCII, aiuto Markdown, annulla e ripeti.
 - Preferenze salvate, salvataggio automatico e recupero di una bozza senza nome.
 - Suoni opzionali se è disponibile `pw-play`, `paplay` oppure `aplay`.
@@ -90,7 +90,9 @@ Il pulsante **ASCII** e F8 mantengono accessibile il precedente menu di elementi
 
 ### Scorciatoie di formattazione
 
-Le scorciatoie agiscono quando il cursore è nel corpo del documento.
+Le scorciatoie di formato agiscono sul corpo del documento. **Ctrl+Shift+N**
+aggiunge una nota anche se il focus è nella ricerca o nella barra laterale,
+usando l’ultima posizione del cursore nel documento.
 
 | Comando | Scorciatoia |
 | --- | --- |
@@ -103,12 +105,25 @@ Le scorciatoie agiscono quando il cursore è nel corpo del documento.
 | Aumenta / riduci rientro | Ctrl+] / Ctrl+[ |
 | Aggiungi nota | Ctrl+Shift+N |
 
+### Barra destra: Appunti e Note
+
+Due schede nella parte alta della barra, **Appunti** e **Note**, selezionano
+il contenuto: entrambe usano tutta l'altezza disponibile. La scelta viene
+ricordata al riavvio; aggiungere una nota apre automaticamente la scheda Note.
+
+Per modificare un appunto, premi **✎** sulla sua scheda: si apre lo stesso
+editor sovrapposto delle note. **Salva l'appunto** o **Ctrl+Invio** salva le
+modifiche; **Annulla** o **Esc** le scarta. Il documento centrale resta invariato.
+Gli appunti modificati vengono salvati subito nel loro file JSON, con scrittura
+atomica. Un errore di salvataggio lascia l'editor aperto e conserva il testo.
+
 ### Note a margine
 
 Dal menu **+ → Aggiungi nota**, o con **Ctrl+Shift+N**, inserisci il richiamo
 numerato al cursore. Si apre un editor sovrapposto al documento, centrato, senza bordi e distinto
 tramite un'ombra. Premi **Salva la nota** o **Ctrl+Invio** per applicare il
 contenuto, oppure **Annulla** / **Esc** per scartare le modifiche.
+Aggiungere o modificare una nota conserva la posizione di lettura del documento.
 La dimensione del pannello si adatta alla finestra (fino a circa 900 × 640 px).
 La barra destra mostra l'elenco delle note: cliccando sul testo di una nota
 torni al suo richiamo nel documento, che viene selezionato; **Modifica** apre
@@ -146,26 +161,28 @@ necessaria all'allineamento.
 - `tests/test_document.py`: test del componente precedente, non test della nuova interfaccia.
 - `tests/test_imported_source.py`: controlli di integrazione sul codice importato e sul CSS.
 
-Da completare rispetto al progetto originale: cinque livelli di
-titoli, sostituzione, spostamento delle sezioni e
-modifica degli appunti. Attualmente eliminare un appunto non
-richiede conferma.
+Da completare rispetto al progetto originale: cinque livelli di titoli,
+sostituzione e spostamento delle sezioni. Attualmente eliminare un appunto
+non richiede conferma.
+
+Test senza interfaccia grafica:
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-Nell'ambiente cloud mancano GtkSourceView 4 e un display virtuale: l'avvio,
-il rendering e le interazioni di questa versione devono ancora essere
-verificati su Linux. I test automatici senza display non ne sostituiscono il collaudo.
+Collaudo della finestra e delle scorciatoie con eventi X11 reali su un display
+virtuale isolato (dipendenze aggiuntive: `xvfb`, `xauth`, `libxtst6`):
 
-Verifica aggiuntiva eseguita: il parser CSS di GTK 3 accetta tutte le 21
-combinazioni dei sette temi e dei tre font. Questo non verifica il rendering.
+```sh
+xvfb-run -a /usr/bin/python3 tests/gtk_smoke.py
+```
 
-Il collegamento della formattazione è stato verificato anche con un vero
-Gtk.TextBuffer (grassetto, sottolineato, elenco numerato), senza finestra.
+Il test usa cartelle temporanee per preferenze, appunti e bozze. Verifica
+formattazione e annullamento, aggiunta note da tastiera e menu senza salti
+di scorrimento, Ctrl+Invio, modifica e annullamento degli appunti, persistenza
+su disco, gestione del salvataggio fallito, navigazione ai richiami e ripristino
+della scheda destra al riavvio. Non eseguirlo sul display in uso: genera eventi
+di tastiera. Nel cloud è stato eseguito con GTK 3, GtkSourceView 4 e Xvfb.
 
-Verifiche dell’ultimo aggiornamento: parsing e modifica delle note, callback
-di modifica del documento con Gtk.TextBuffer reale, instradamento delle
-scorciatoie (con traduzione della tastiera simulata) e CSS su 21 combinazioni.
-La verifica visiva e della tastiera fisica richiede ancora il PC Linux.
+Il parser CSS di GTK 3 è stato verificato anche sulle 21 combinazioni di temi e font.
