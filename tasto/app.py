@@ -15,6 +15,8 @@ prossimo avvio. Si disattiva dall'ingranaggio.
 
 Scorciatoie:
     Ctrl+N / Ctrl+O / Ctrl+S / Ctrl+Shift+S   nuovo, apri, salva, salva con nome
+    Ctrl+B / Ctrl+I / Ctrl+U                 grassetto, corsivo, sottolineato
+    Ctrl+Shift+X / Ctrl+Shift+N               barrato, nota a margine
     Ctrl+Z / Ctrl+Y                           annulla, ripeti
     Ctrl++ / Ctrl+- / Ctrl+0                  ingrandisci, riduci, ripristina il corpo del testo
     Ctrl + rotella                            ingrandisci o riduci il corpo del testo
@@ -28,6 +30,7 @@ verranno usati i tuoi.
 
 import bisect
 from .formatting import format_edit
+from .footnotes import notes as document_notes, add_note as add_footnote, update_note
 from pathlib import Path
 import json
 import math
@@ -94,7 +97,6 @@ FONTS = [
     ("Serif", "'IBM Plex Serif', 'Noto Serif', 'DejaVu Serif', serif", 1.0),
     ("Sans", "'IBM Plex Sans', 'Noto Sans', 'DejaVu Sans', sans-serif", 1.0),
 ]
-UI_FONT = FONTS[0][1]  # carattere unico di barre laterali, barra inferiore e menu
 CODE_FAMILY = "IBM Plex Mono, Noto Sans Mono, DejaVu Sans Mono, Monospace"  # blocchi ``` e ASCII art
 
 SIZE_MIN, SIZE_MAX = 8, 48                        # pt
@@ -136,6 +138,7 @@ QUOTE = re.compile(r"^\s{0,3}>")
 LIST = re.compile(r"^\s*([-+*]|\d{1,3}[.)])(?=\s)")
 LINK = re.compile(r"(\[[^\]\n]+\])(\([^)\n]+\))")
 INLINE = [
+    (re.compile(r"\[\^\d+\](?!:)"), "footnote"),
     (re.compile(r"~~[^~\n]+~~"), "strike"),
     (re.compile(r"<u>[^\n]+?</u>"), "underline"),
     (re.compile(r"\*\*[^*\n]+\*\*"), "bold"),
@@ -149,8 +152,11 @@ HELP = [
     ("# Titolo", "titolo di primo livello"),
     ("## Titolo", "secondo livello"),
     ("### Titolo", "terzo livello"),
-    ("**testo**", "grassetto"),
-    ("*testo*  _testo_", "corsivo"),
+    ("**testo**", "grassetto · Ctrl+B"),
+    ("*testo*  _testo_", "corsivo · Ctrl+I"),
+    ("<u>testo</u>", "sottolineato · Ctrl+U"),
+    ("~~testo~~", "barrato · Ctrl+Shift+X"),
+    ("[^1] / [^1]: nota", "nota a margine · Ctrl+Shift+N"),
     ("- voce", "elenco puntato"),
     ("1. voce", "elenco numerato"),
     ("> testo", "citazione"),
@@ -530,6 +536,7 @@ class Tasto(Gtk.Window):
         self._menu = None       # menu aperto in questo momento
         self._chars = 0
         self._words = 0
+        self._footnote_key = None
         self.set_default_size(*self.cfg["win"])
 
         self.provider = Gtk.CssProvider()
@@ -583,6 +590,7 @@ class Tasto(Gtk.Window):
         self.tags = {
             "bold": b.create_tag("bold", weight=Pango.Weight.BOLD),
             "ital": b.create_tag("ital", style=Pango.Style.ITALIC),
+            "footnote": b.create_tag("footnote", rise=4000, scale=0.8),
             "strike": b.create_tag("strike", strikethrough=True),
             "underline": b.create_tag("underline", underline=Pango.Underline.SINGLE),
             "code": b.create_tag("code", family=CODE_FAMILY),
@@ -808,6 +816,13 @@ class Tasto(Gtk.Window):
         self.right_pane.pack_start(self.pane_title("APPUNTI"), False, False, 0)
         self.right_pane.pack_start(row, False, False, 0)
         self.right_pane.pack_start(notes_sw, True, True, 0)
+        self.right_pane.pack_start(self.pane_title("NOTE A MARGINE"), False, False, 0)
+        self.footnote_list = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.footnote_list.set_border_width(12)
+        footnote_sw = Gtk.ScrolledWindow()
+        footnote_sw.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        footnote_sw.add(self.footnote_list)
+        self.right_pane.pack_start(footnote_sw, True, True, 0)
         self.rebuild_notes()
 
     def build_bottom_bar(self):
@@ -957,11 +972,13 @@ class Tasto(Gtk.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         box.set_border_width(12)
         box.pack_start(self.small_heading("Formato"), False, False, 0)
-        for label, command in (("B  ·  Grassetto", "bold"), ("I  ·  Corsivo", "italic"),
-                               ("U  ·  Sottolineato", "underline"), ("S  ·  Barrato", "strike"),
-                               ("•  ·  Elenco puntato", "bullet"), ("1. ·  Elenco numerato", "number"),
-                               ("→  ·  Aumenta rientro", "indent"), ("←  ·  Riduci rientro", "outdent")):
+        for label, command in (("B  ·  Grassetto   Ctrl+B", "bold"), ("I  ·  Corsivo   Ctrl+I", "italic"),
+                               ("U  ·  Sottolineato   Ctrl+U", "underline"), ("S  ·  Barrato   Ctrl+Shift+X", "strike"),
+                               ("•  ·  Elenco puntato   Ctrl+Shift+7", "bullet"), ("1. ·  Elenco numerato   Ctrl+Shift+8", "number"),
+                               ("→  ·  Aumenta rientro   Ctrl+]", "indent"), ("←  ·  Riduci rientro   Ctrl+[", "outdent")):
             box.pack_start(self.button(label, label, lambda c=command: self.format_text(c)), False, False, 0)
+        box.pack_start(self.button("ⁿ  ·  Aggiungi nota   Ctrl+Shift+N",
+                                   "Aggiungi nota a margine", self.add_margin_note), False, False, 0)
         return self.make_menu(box)
 
     def show_format(self):
@@ -1134,8 +1151,8 @@ class Tasto(Gtk.Window):
         th = THEMES[c["theme"]]
         _, font_css, font_scale = FONTS[c["font"]]
         eff = c["size"] * font_scale        # grandezza effettiva, compensata per carattere
-        values = dict(th, font=font_css, size=f"{eff:.1f}", ui=str(UI_SIZE),
-                      uifont=UI_FONT, accent=th["syn"]["head"])
+        values = dict(th, font=font_css, size=f"{eff:.1f}", ui=f"{UI_SIZE * font_scale:.1f}",
+                      uifont=font_css, accent=th["syn"]["head"])
         css = CSS
         for key, val in values.items():
             if isinstance(val, str):
@@ -1161,7 +1178,7 @@ class Tasto(Gtk.Window):
             self.paint(tag, syn.get("head"))
         for key, color in (("bold", "bold"), ("ital", "ital"), ("code", "code"),
                            ("quote", "quote"), ("list", "list"), ("linktext", "link"),
-                           ("strike", "bold"), ("underline", "ital")):
+                           ("strike", "bold"), ("underline", "ital"), ("footnote", "link")):
             self.paint(self.tags[key], syn.get(color))
         self.paint(self.tags["linkurl"], th["dim"] if c["colors"] else None)
 
@@ -1310,6 +1327,7 @@ class Tasto(Gtk.Window):
         text = self.buf.get_text(start, end, True)
         heads = self.style_markdown(text)
         self.update_counts(text)
+        self.refresh_margin_notes(text)
         self.update_outline(heads)
         if self.search.get_text():
             self.run_search(text)
@@ -1619,6 +1637,84 @@ class Tasto(Gtk.Window):
         save_json(NOTES_PATH, self.notes)
         self.rebuild_notes()
 
+    def replace_document(self, text, cursor):
+        self.buf.begin_user_action()
+        try:
+            self.buf.delete(*self.buf.get_bounds())
+            self.buf.insert(self.buf.get_start_iter(), text)
+            self.buf.place_cursor(self.buf.get_iter_at_offset(min(cursor, len(text))))
+        finally:
+            self.buf.end_user_action()
+
+    def add_margin_note(self):
+        cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
+        text, cursor, number = add_footnote(self.get_text(), cursor)
+        self.replace_document(text, cursor)
+        self.close_menu()
+        self.cfg["notes"] = True
+        self.right_pane.show()
+        self.flag(self.notes_btn, True)
+        self.schedule_fit()
+        self.refresh_margin_notes(text)
+        self.edit_margin_note(number)
+
+    def refresh_margin_notes(self, text):
+        entries = document_notes(text)
+        key = tuple((note.number, note.content) for note in entries)
+        if key == self._footnote_key:
+            return
+        self._footnote_key = key
+        for child in self.footnote_list.get_children():
+            self.footnote_list.remove(child)
+        if not entries:
+            label = Gtk.Label(label="Nessuna nota. Aggiungila dal menu +.")
+            label.set_line_wrap(True)
+            self.footnote_list.pack_start(label, False, False, 0)
+        for note in entries:
+            label = Gtk.Label(label=f"{note.number}. {note.content or '(nota vuota)'}", xalign=0)
+            label.set_line_wrap(True)
+            label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+            label.set_max_width_chars(24)
+            self.footnote_list.pack_start(label, False, False, 0)
+            self.footnote_list.pack_start(self.button("Modifica", "Modifica la nota " + note.number,
+                                                    lambda n=note.number: self.edit_margin_note(n)), False, False, 0)
+        self.footnote_list.show_all()
+
+    def edit_margin_note(self, number):
+        matches = [note for note in document_notes(self.get_text()) if note.number == number]
+        if len(matches) != 1:
+            self.error("Numero di nota assente o duplicato: correggi le definizioni Markdown.")
+            return
+        dialog = Gtk.Dialog(title="Nota " + number, transient_for=self, modal=True)
+        dialog.set_name("note-dialog")
+        dialog.set_default_size(440, 300)
+        dialog.add_button("Annulla", Gtk.ResponseType.CANCEL)
+        dialog.add_button("Salva nota", Gtk.ResponseType.ACCEPT)
+        editor = Gtk.TextView()
+        editor.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        editor.set_left_margin(16)
+        editor.set_right_margin(16)
+        editor.set_top_margin(16)
+        editor.get_buffer().set_text(matches[0].content)
+        scroll = Gtk.ScrolledWindow()
+        scroll.add(editor)
+        dialog.get_content_area().pack_start(scroll, True, True, 0)
+        dialog.show_all()
+        editor.grab_focus()
+        response = dialog.run()
+        if response == Gtk.ResponseType.ACCEPT:
+            buf = editor.get_buffer()
+            content = buf.get_text(*buf.get_bounds(), True)
+            cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
+            try:
+                text = update_note(self.get_text(), number, content)
+                self.replace_document(text, cursor)
+                self.refresh_margin_notes(text)
+            except ValueError as error:
+                self.error(str(error))
+        dialog.destroy()
+        self.view.grab_focus()
+
     # --- Tastiera e rotella --------------------------------------------------------
 
     def key_sound(self, key):
@@ -1667,6 +1763,28 @@ class Tasto(Gtk.Window):
             return True
         if not ctrl:
             return False
+        if in_editor:
+            command = None
+            lower = Gdk.keyval_to_lower(key)
+            # Il simbolo Shift+7 cambia tra tastiere (es. & oppure /).
+            translated = Gdk.Keymap.get_for_display(self.get_display()).translate_keyboard_state(
+                e.hardware_keycode, e.state & ~Gdk.ModifierType.SHIFT_MASK, e.group)
+            base_key = translated[1] if translated[0] else lower
+            if not shift:
+                command = {Gdk.KEY_b: "bold", Gdk.KEY_i: "italic", Gdk.KEY_u: "underline",
+                           Gdk.KEY_bracketright: "indent", Gdk.KEY_bracketleft: "outdent"}.get(lower)
+            elif lower == Gdk.KEY_x:
+                command = "strike"
+            elif base_key == Gdk.KEY_7:
+                command = "bullet"
+            elif base_key == Gdk.KEY_8:
+                command = "number"
+            elif lower == Gdk.KEY_n:
+                self.add_margin_note()
+                return True
+            if command:
+                self.format_text(command)
+                return True
         if key in (Gdk.KEY_plus, Gdk.KEY_equal, Gdk.KEY_KP_Add):
             self.change_size(1)
         elif key in (Gdk.KEY_minus, Gdk.KEY_underscore, Gdk.KEY_KP_Subtract):

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 class ImportedSourceTests(unittest.TestCase):
     def test_css_theme_placeholders_are_resolved(self):
         tree = ast.parse((ROOT / 'tasto/app.py').read_text())
-        names = {'theme', 'THEMES', 'THEME_ORDER', 'extra_css', 'FONTS', 'UI_FONT', 'UI_SIZE'}
+        names = {'theme', 'THEMES', 'THEME_ORDER', 'extra_css', 'FONTS', 'UI_SIZE'}
         nodes = [n for n in tree.body if
                  isinstance(n, ast.FunctionDef) and n.name in names or
                  isinstance(n, ast.Assign) and any(
@@ -21,7 +21,7 @@ class ImportedSourceTests(unittest.TestCase):
         for name, theme in namespace['THEMES'].items():
             for _, font, scale in namespace['FONTS']:
                 values = dict(theme, font=font, size=f'{14 * scale:.1f}',
-                              ui=str(namespace['UI_SIZE']), uifont=namespace['UI_FONT'],
+                              ui=f"{namespace['UI_SIZE'] * scale:.1f}", uifont=font,
                               accent=theme['syn']['head'])
                 resolved = css
                 for key, value in values.items():

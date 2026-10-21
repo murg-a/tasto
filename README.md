@@ -87,11 +87,51 @@ riga corrente. Con più righe selezionate agiscono su tutte le righe coinvolte.
 Ogni comando è una singola operazione annullabile con Ctrl+Z.
 Il sottolineato usa HTML perché Markdown non ha una sintassi standard dedicata.
 Il pulsante **ASCII** e F8 mantengono accessibile il precedente menu di elementi ASCII.
-Le note a margine non sono ancora incluse nel menu +.
+
+### Scorciatoie di formattazione
+
+Le scorciatoie agiscono quando il cursore è nel corpo del documento.
+
+| Comando | Scorciatoia |
+| --- | --- |
+| Grassetto | Ctrl+B |
+| Corsivo | Ctrl+I |
+| Sottolineato | Ctrl+U |
+| Barrato | Ctrl+Shift+X |
+| Elenco puntato | Ctrl+Shift+7 |
+| Elenco numerato | Ctrl+Shift+8 |
+| Aumenta / riduci rientro | Ctrl+] / Ctrl+[ |
+| Aggiungi nota | Ctrl+Shift+N |
+
+### Note a margine
+
+Dal menu **+ → Aggiungi nota**, o con **Ctrl+Shift+N**, inserisci il richiamo
+numerato al cursore. Si apre una finestra per scrivere il contenuto: premi
+**Salva nota** per applicarlo al documento. La barra destra si apre e mostra
+l'elenco delle note; **Modifica** permette di correggerne il testo.
+Annullare la finestra appena creata lascia una nota vuota, rimovibile con Ctrl+Z.
+
+Le note appartengono al documento, a differenza degli appunti condivisi:
+sono salvate come Markdown standard, con `[^1]` nel testo e `[^1]: contenuto`
+in fondo al documento. Le definizioni sono visibili anche nel corpo del testo.
+Modifiche e inserimenti seguono il normale salvataggio/autosalvataggio e sono
+annullabili. I numeri restano stabili; non vengono rinumerati quando sposti il testo.
+Aprendo di nuovo il file, le note ricompaiono nella barra destra.
+
+### Font dell'interfaccia
+
+La scelta **Mono / Serif / Sans** ora cambia anche barre, menu e finestra delle
+note. Le tre famiglie IBM Plex sono coordinate e restano la scelta consigliata;
+in loro assenza si usano Noto, poi DejaVu e i font generici di sistema.
+La dimensione del testo resta regolabile; i controlli mantengono dimensioni
+compatte, compensate per il Mono, e i margini della colonna continuano ad
+adattarsi alla finestra. Codice e anteprime ASCII mantengono la spaziatura fissa
+necessaria all'allineamento.
 
 ## Sviluppo
 
 - `tasto/app.py`: base GTK importata da `scrivi3.py`, adattata al nome e ai percorsi Tasto.
+- `tasto/footnotes.py`: lettura, creazione e modifica di note Markdown.
 - `tasto/formatting.py`: trasformazioni Markdown usate dal menu +.
 - `tasto/style.css`: stile estratto dal file originale; i segnaposto `@bg@`,
   `@fg@`, ecc. sono sostituiti da Python in base al tema.
@@ -101,8 +141,8 @@ Le note a margine non sono ancora incluse nel menu +.
 - `tests/test_imported_source.py`: controlli di integrazione sul codice importato e sul CSS.
 
 Da completare rispetto al progetto originale: cinque livelli di
-titoli, sostituzione, spostamento delle sezioni,
-note a margine e modifica degli appunti. Attualmente eliminare un appunto non
+titoli, sostituzione, spostamento delle sezioni e
+modifica degli appunti. Attualmente eliminare un appunto non
 richiede conferma.
 
 ```sh
@@ -118,3 +158,8 @@ combinazioni dei sette temi e dei tre font. Questo non verifica il rendering.
 
 Il collegamento della formattazione è stato verificato anche con un vero
 Gtk.TextBuffer (grassetto, sottolineato, elenco numerato), senza finestra.
+
+Verifiche dell’ultimo aggiornamento: parsing e modifica delle note, callback
+di modifica del documento con Gtk.TextBuffer reale, instradamento delle
+scorciatoie (con traduzione della tastiera simulata) e CSS su 21 combinazioni.
+La verifica visiva e della tastiera fisica richiede ancora il PC Linux.

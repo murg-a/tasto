@@ -73,3 +73,11 @@
 #splash label { color: @dim@; font-family: @uifont@; font-size: 20pt; }
 #splash label.key { color: @fg@; font-weight: bold; border: 1px solid @dim@;
                     border-bottom-width: 3px; border-radius: 8px; padding: 6px 18px; }
+
+/* La famiglia segue la scelta globale; le dimensioni UI restano compatte. */
+#main, #note-dialog { font-family: @font@; font-size: @ui@pt; }
+#rightpane label { color: @fg@; font-family: @font@; font-size: @ui@pt; }
+#rightpane #panetitle { color: @dim@; }
+#note-dialog, #note-dialog textview, #note-dialog textview text {
+    background-color: @bg@; color: @fg@; font-family: @font@; font-size: @ui@pt;
+}
