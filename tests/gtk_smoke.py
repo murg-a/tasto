@@ -24,7 +24,9 @@ for variable, folder in (("XDG_CONFIG_HOME", "config"), ("XDG_DATA_HOME", "data"
     path.mkdir()
     os.environ[variable] = str(path)
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from tasto.app import Tasto, NOTES_PATH
+from tasto.app import Tasto, NOTES_PATH, DEFAULTS
+DEFAULTS["folder"] = str(Path(_test_directory.name) / "documents")
+Path(DEFAULTS["folder"]).mkdir()
 from gi.repository import Gtk, Gdk, GLib
 
 
@@ -200,6 +202,49 @@ assert 'condivisa' in win.get_text() and len([r for r in references(win.get_text
 shortcut(Gdk.KEY_Control_L,Gdk.KEY_z)
 assert win.get_text()==reused
 print('PASS: dipendenza inversa e conservazione delle note con richiami ripetuti.')
+# Schermata iniziale: liste, paginazione, recenti e apertura da tastiera.
+folder=Path(_test_directory.name)/'library';folder.mkdir()
+for index in range(10):
+    (folder/f'file-{index:02}.md').write_text(f'Documento {index}',encoding='utf-8')
+(folder/'non-markdown.txt').write_text('altro',encoding='utf-8')
+other=Path(_test_directory.name)/'other';other.mkdir()
+(other/'esterno.md').write_text('esterno',encoding='utf-8')
+win.set_home_folder(str(folder));win.set_content('Documento in corso',None)
+win.remember_document(folder/'file-04.md');win.remember_document(other/'esterno.md')
+before=win.get_text();win.show_settings();pump();win.splash_btn.clicked();pump()
+assert win.splash.get_visible() and win.get_text()==before and win.path is None
+assert win.home_folder.get_text()==str(folder)
+assert [button.get_label() for button in win.home_files.get_children()]==[f'file-{i:02}.md' for i in range(7)]+['+']
+assert [button.get_label() for button in win.home_recent.get_children()]==['file-04.md']
+win.home_files.get_children()[-1].clicked();pump()
+assert len(win.home_files.get_children())==10
+assert not any(button.get_label()=='+' for button in win.home_files.get_children())
+# La scelta di un file non scarta il documento quando si annulla la conferma.
+confirm=win.confirm;win.confirm=lambda:False
+win.home_files.get_children()[0].clicked();pump()
+assert win.splash.get_visible() and win.get_text()==before
+win.confirm=confirm
+shortcut(Gdk.KEY_Escape)
+assert not win.splash.get_visible() and win.get_text()==before
+win.buf.set_modified(False);win.show_home();pump()
+shortcut(Gdk.KEY_Tab)
+assert win.splash.get_visible() and isinstance(win.get_focus(),Gtk.Button)
+win.home_files.get_children()[0].grab_focus()
+shortcut(Gdk.KEY_Return)
+assert not win.splash.get_visible() and win.get_text()=='Documento 0'
+assert win.path==str(folder/'file-00.md')
+win.show_home();pump()
+assert win.home_recent.get_children()[0].get_label()=='file-00.md'
+# Cambiare cartella aggiorna le liste e ricorda la preferenza senza cambiare documento.
+win.set_home_folder(str(other));pump()
+assert win.get_text()=='Documento 0'
+assert win.home_files.get_children()[0].get_label()=='esterno.md'
+saved=json.loads(Path(app_module.CONFIG_PATH).read_text())
+assert saved['folder']==str(other) and saved['recent_files'][0]==str(folder/'file-00.md')
+win.set_home_folder(str(folder/'cartella-inesistente'));pump()
+assert win.home_status.get_visible() and 'Cartella non disponibile' in win.home_status.get_text()
+win.set_home_folder(str(folder));win.dismiss_splash();pump()
+print('PASS: schermata iniziale da impostazioni, cartella persistita, recenti filtrati, 7 file e +, apertura con Invio, documento protetto e cartella assente.')
 second.buf.set_modified(False);second.destroy();pump(.1)
 print('PASS: la scheda selezionata è ricordata al riavvio.')
 

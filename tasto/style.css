@@ -100,3 +100,14 @@
 #rightpane stackswitcher button { padding: 6px 12px; border-color: transparent; }
 #rightpane stackswitcher button:checked { background-color: @sel@; border-color: @line@; }
 #rightpane stackswitcher button:checked label { color: @fg@; }
+
+#splash scrolledwindow, #splash viewport { background-color: @bg@; }
+#splash #home-library label { font-size: @ui@pt; color: @dim@; }
+#splash #home-library button {
+    background-image: none; background-color: transparent; box-shadow: none;
+    border: 1px solid @line@; border-radius: 6px; padding: 6px 10px;
+    font-family: @font@; font-size: @ui@pt; color: @fg@;
+}
+#splash #home-library button label { color: @fg@; }
+#splash #home-library button.home-file { border-color: transparent; }
+#splash #home-library button:hover, #splash #home-library button:focus { background-color: @sel@; }

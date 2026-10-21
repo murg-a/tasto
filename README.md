@@ -57,6 +57,31 @@ La bozza senza nome è in `~/.local/share/tasto/recupero.md` (i percorsi seguono
 le directory XDG se personalizzate). I dati della precedente app Scrivi non
 vengono modificati o importati automaticamente.
 
+## Schermata iniziale
+
+All'avvio trovi la biblioteca della cartella scelta e il consueto invito
+**premi un TASTO**. Puoi riaprirla dall'ingranaggio → **Schermata iniziale**:
+il documento aperto e la sua posizione vengono conservati finché non scegli
+un altro file o un nuovo documento.
+
+- **Cartella:** mostra il percorso; **Scegli** apre la selezione di cartella.
+  La prima cartella proposta è `Tasto` dentro la cartella Documenti dell'utente.
+- **Recenti:** gli ultimi cinque file Markdown aperti o salvati nella cartella
+  selezionata, escludendo quelli rimossi o appartenenti ad altre cartelle.
+- **Tutti i file:** sette file `.md` / `.markdown` in ordine alfabetico; **+**
+  mostra altri sette file alla volta. I nomi sono cliccabili.
+
+Cartella e cronologia vengono ricordate nelle preferenze. Una cartella vuota
+o non più accessibile mostra un messaggio e permette di sceglierne un'altra.
+
+**Tab / Shift+Tab** spostano il focus e **Invio** apre il file selezionato.
+**Ctrl+O** apre un file, **Ctrl+N** crea un documento e **Ctrl+Shift+O** sceglie
+la cartella quando la schermata iniziale è visibile. **Esc**, un clic
+sull'invito o un tasto di scrittura riportano al documento, mantenendo il
+comportamento dell'invito iniziale: il primo tasto chiude la schermata.
+Se scegli un altro file con modifiche ancora da salvare, viene richiesta la
+consueta scelta Salva / Scarta / Annulla.
+
 ## Temi
 
 Nella barra inferiore trovi un solo riquadro con una `t`: mostra il tema
@@ -167,6 +192,7 @@ necessaria all'allineamento.
 ## Sviluppo
 
 - `tasto/app.py`: base GTK importata da `scrivi3.py`, adattata al nome e ai percorsi Tasto.
+- `tasto/library.py`: elenco dei file Markdown e recenti della cartella scelta.
 - `tasto/footnotes.py`: lettura, creazione e modifica di note Markdown.
 - `tasto/formatting.py`: trasformazioni Markdown usate dal menu +.
 - `tasto/style.css`: stile estratto dal file originale; i segnaposto `@bg@`,
@@ -199,7 +225,9 @@ di scorrimento, Ctrl+Invio, modifica e annullamento degli appunti, persistenza
 su disco, gestione del salvataggio fallito, navigazione ai richiami e ripristino
 della scheda destra al riavvio. Verifica inoltre rinumerazione per posizione,
 clic nativo sui richiami, cancellazione collegata e recupero con annulla/ripeti,
-incluso il caso di una nota con più richiami. Non eseguirlo sul display in uso: genera eventi
+incluso il caso di una nota con più richiami. Per la schermata iniziale controlla
+cartella e cronologia persistenti, filtri per cartella, paginazione, apertura
+da tastiera, ritorno al documento in corso e gestione della cartella assente. Non eseguirlo sul display in uso: genera eventi
 di tastiera. Nel cloud è stato eseguito con GTK 3, GtkSourceView 4 e Xvfb.
 
 Il parser CSS di GTK 3 è stato verificato anche sulle 21 combinazioni di temi e font.

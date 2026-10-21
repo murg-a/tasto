@@ -30,6 +30,7 @@ verranno usati i tuoi.
 
 import bisect
 from .formatting import format_edit
+from .library import markdown_files, recent_in_folder, remember_file
 from .footnotes import notes as document_notes, add_note as add_footnote, update_note, reference_offset, references, synchronize_notes, reconcile_notes
 from pathlib import Path
 import json
@@ -118,7 +119,7 @@ MODIFIER_KEYS = ("Shift", "Control", "Alt", "Meta", "Super", "Hyper", "Caps_Lock
 
 DEFAULTS = {"theme": "chiaro", "font": 1, "size": 14, "width": 720, "sidebar": True,
             "notes": False, "right_page": "scratch", "target": 0, "colors": False, "sound": False,
-            "autosave": True, "splash": True, "win": [1280, 800]}
+            "autosave": True, "folder": "", "recent_files": [], "win": [1280, 800]}
 
 CSS = Path(__file__).with_name("style.css").read_text(encoding="utf-8")
 
@@ -450,6 +451,11 @@ def load_config():
     try:
         with open(CONFIG_PATH, encoding="utf-8") as f:
             cfg.update(json.load(f))
+        if not isinstance(cfg["folder"], str):
+            cfg["folder"] = ""
+        if not isinstance(cfg["recent_files"], list):
+            cfg["recent_files"] = []
+        cfg["recent_files"] = [path for path in cfg["recent_files"] if isinstance(path, str)][:100]
         if cfg["right_page"] not in ("scratch", "footnotes"):
             cfg["right_page"] = "scratch"
         if cfg["theme"] not in THEMES:
@@ -460,7 +466,7 @@ def load_config():
         cfg["width"] = max(WIDTH_MIN, min(WIDTH_MAX, int(cfg["width"])))
         cfg["target"] = max(0, int(cfg["target"]))
         cfg["win"] = [int(cfg["win"][0]), int(cfg["win"][1])]
-        for key in ("sidebar", "notes", "colors", "sound", "autosave", "splash"):
+        for key in ("sidebar", "notes", "colors", "sound", "autosave"):
             cfg[key] = bool(cfg[key])
     except (OSError, ValueError, TypeError, KeyError, IndexError):
         cfg = dict(DEFAULTS)
@@ -537,6 +543,10 @@ class Tasto(Gtk.Window):
         self._editing_note = None
         self._viewport_restore = 0
         self._note_sync_source = 0
+        self._splash_timer = 0
+        self._home_limit = 7
+        self._home_warning = ""
+        self._home_viewport = None
         self._holding_note_action = False
         self._mutating_notes = False
         self._undoing_notes = False
@@ -926,16 +936,44 @@ class Tasto(Gtk.Window):
         return True
 
     def build_splash(self):
-        """Schermata iniziale: sparisce al primo tasto (o con un clic)."""
+        """Biblioteca iniziale e invito alla scrittura, nello stesso spazio dell'editor."""
         self.splash = Gtk.EventBox()
         self.splash.set_name("splash")
+        self.splash.set_can_focus(True)
+        self.splash.set_no_show_all(True)
         self.splash.set_visible_window(True)
-        self.splash.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
-        self.splash.connect("button-press-event", self.on_splash_click)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.home_content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=28)
+        self.home_content.set_halign(Gtk.Align.CENTER)
+        self.home_content.set_valign(Gtk.Align.CENTER)
+        self.home_content.set_margin_top(40)
+        self.home_content.set_margin_bottom(40)
+        library = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        library.set_name("home-library")
+        folder_row = Gtk.Box(spacing=12)
+        folder_row.pack_start(Gtk.Label(label="Cartella:", xalign=0), False, False, 0)
+        self.home_folder = Gtk.Label(xalign=0, hexpand=True)
+        self.home_folder.set_ellipsize(Pango.EllipsizeMode.MIDDLE)
+        folder_row.pack_start(self.home_folder, True, True, 0)
+        self.home_choose_btn = self.home_button("Scegli", "Scegli cartella (Ctrl+Shift+O)", self.choose_home_folder)
+        folder_row.pack_start(self.home_choose_btn, False, False, 0)
+        library.pack_start(folder_row, False, False, 0)
+        self.home_status = Gtk.Label(xalign=0)
+        self.home_status.set_line_wrap(True)
+        library.pack_start(self.home_status, False, False, 0)
+        library.pack_start(self.small_heading("Recenti:"), False, False, 0)
+        self.home_recent = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        library.pack_start(self.home_recent, False, False, 0)
+        library.pack_start(self.small_heading("Tutti i file:"), False, False, 0)
+        self.home_files = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        library.pack_start(self.home_files, False, False, 0)
+        self.home_content.pack_start(library, False, False, 0)
+        prompt = Gtk.EventBox()
+        prompt.set_visible_window(False)
+        prompt.connect("button-press-event", self.on_splash_click)
         box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
         box.set_halign(Gtk.Align.CENTER)
-        box.set_valign(Gtk.Align.CENTER)
-        self.splash_dots = None
         for text, cls in (("premi un", None), ("TASTO", "key"), ("...", "dots")):
             label = Gtk.Label(label=text)
             if cls:
@@ -943,16 +981,127 @@ class Tasto(Gtk.Window):
             if cls == "dots":
                 self.splash_dots = label
             box.pack_start(label, False, False, 0)
-        self.splash.add(box)
-        self.overlay.add_overlay(self.splash)           # per ultimo: sta sopra a tutto
+        prompt.add(box)
+        self.home_content.pack_start(prompt, False, False, 0)
+        self.home_content.show_all()
+        scroll.add(self.home_content)
+        scroll.show()
+        self.splash.add(scroll)
+        self.overlay.add_overlay(self.splash)
         self.overlay.set_overlay_pass_through(self.splash, False)
-        GLib.timeout_add(650, self.blink_splash)
+        self.overlay.connect("size-allocate", self.resize_home)
+
+    def home_button(self, label, tooltip, callback):
+        button = self.button(label, tooltip, callback)
+        button.set_can_focus(True)
+        button.set_focus_on_click(True)
+        return button
+
+    def resize_home(self, _widget=None, allocation=None):
+        allocation = allocation or self.overlay.get_allocation()
+        width = max(1, min(720, allocation.width - 64))
+        if self.home_content.get_size_request()[0] != width:
+            self.home_content.set_size_request(width, -1)
+
+    def ensure_home_folder(self):
+        if self.cfg["folder"]:
+            return
+        documents = GLib.get_user_special_dir(GLib.UserDirectory.DIRECTORY_DOCUMENTS)
+        folder = Path(documents or os.path.join(GLib.get_home_dir(), "Documenti")) / "Tasto"
+        self.cfg["folder"] = str(folder)
+        try:
+            folder.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            self._home_warning = "Scegli una cartella accessibile. " + str(error)
+
+    def refresh_home(self, reset=False):
+        self.ensure_home_folder()
+        if reset:
+            self._home_limit = 7
+        folder = self.cfg["folder"]
+        self.home_folder.set_text(folder)
+        self.home_folder.set_tooltip_text(folder)
+        for container in (self.home_recent, self.home_files):
+            for child in container.get_children():
+                container.remove(child)
+        message = self._home_warning
+        try:
+            files = markdown_files(folder)
+            recent = recent_in_folder(folder, self.cfg["recent_files"])
+        except (OSError, ValueError) as error:
+            files, recent = [], []
+            message = "Cartella non disponibile: " + str(error)
+        self.home_status.set_text(message)
+        self.home_status.set_visible(bool(message))
+        for container, paths, empty in ((self.home_recent, recent, "Nessun file recente in questa cartella."),
+                                        (self.home_files, files[:self._home_limit], "Nessun file Markdown in questa cartella.")):
+            if not paths:
+                label = Gtk.Label(label=empty, xalign=0)
+                label.set_line_wrap(True)
+                container.pack_start(label, False, False, 0)
+            for path in paths:
+                button = self.home_button(path.name, str(path), lambda path=path: self.open_home_file(path))
+                button.get_style_context().add_class("home-file")
+                button.get_child().set_xalign(0)
+                button.get_child().set_ellipsize(Pango.EllipsizeMode.END)
+                container.pack_start(button, False, False, 0)
+            container.show_all()
+        if len(files) > self._home_limit:
+            more = self.home_button("+", "Mostra altri 7 file", self.more_home_files)
+            more.set_halign(Gtk.Align.START)
+            self.home_files.pack_start(more, False, False, 0)
+            more.show()
+
+    def more_home_files(self):
+        self._home_limit += 7
+        self.refresh_home()
+
+    def choose_home_folder(self):
+        chooser = Gtk.FileChooserNative.new("Scegli la cartella di Tasto", self,
+                                           Gtk.FileChooserAction.SELECT_FOLDER, "Scegli", "Annulla")
+        if os.path.isdir(self.cfg["folder"]):
+            chooser.set_current_folder(self.cfg["folder"])
+        if chooser.run() == Gtk.ResponseType.ACCEPT:
+            self.set_home_folder(chooser.get_filename())
+        chooser.destroy()
+
+    def set_home_folder(self, folder):
+        self.cfg["folder"] = os.path.abspath(os.path.expanduser(folder))
+        self._home_warning = "" if save_json(CONFIG_PATH, self.cfg) else "Impossibile salvare la cartella nelle preferenze."
+        self.refresh_home(reset=True)
+
+    def remember_document(self, path):
+        self.cfg["recent_files"] = remember_file(self.cfg["recent_files"], path)
+        if not save_json(CONFIG_PATH, self.cfg):
+            self._home_warning = "Impossibile salvare i file recenti nelle preferenze."
+        if self.splash.get_visible():
+            self.refresh_home()
+
+    def open_home_file(self, path):
+        if not self.confirm():
+            return
+        unnamed = self.path is None
+        if self.open_path(path) and unnamed:
+            self.remove_draft()
+
+    def show_home(self):
+        self.finish_note_action()
+        self.close_menu()
+        if not self.splash.get_visible():
+            self._home_viewport = self.document_viewport()
+        self.refresh_home(reset=True)
+        self.resize_home()
+        self.root.set_sensitive(False)
+        self.splash.show()
+        self.splash.grab_focus()
+        if not self._splash_timer:
+            self._splash_timer = GLib.timeout_add(650, self.blink_splash)
 
     def blink_splash(self):
         if not self.splash.get_visible():
+            self._splash_timer = 0
             return False
-        dots = self.splash_dots
-        dots.set_opacity(1.0 if dots.get_opacity() < 1.0 else 0.15)
+        self.splash_dots.set_opacity(1.0 if self.splash_dots.get_opacity() < 1.0 else 0.15)
         return True
 
     def on_splash_click(self, *_):
@@ -962,20 +1111,26 @@ class Tasto(Gtk.Window):
     def dismiss_splash(self):
         if self.splash.get_visible():
             self.splash.hide()
+            if self._splash_timer:
+                GLib.source_remove(self._splash_timer)
+                self._splash_timer = 0
+            self.root.set_sensitive(True)
             self.view.grab_focus()
+            if self._home_viewport is not None:
+                self.restore_document_viewport(self._home_viewport)
+                self._home_viewport = None
 
     def start(self, path=None):
         self.show_all()
-        if not self.cfg["splash"]:
-            self.splash.hide()
         self.left_pane.set_visible(self.cfg["sidebar"])
         self.right_pane.set_visible(self.cfg["notes"])
         self.update_goal()
         if path:
-            self.open_path(path)
+            if not self.open_path(path):
+                self.show_home()
         else:
             self.restore_draft()
-        self.view.grab_focus()
+            self.show_home()
 
     # --- Menu a comparsa (seguono il tema) ----------------------------------------------
 
@@ -1110,7 +1265,7 @@ class Tasto(Gtk.Window):
         box.pack_start(self.autosave_btn, False, False, 0)
         self.splash_btn = Gtk.Button(label="Schermata iniziale")
         self.splash_btn.set_can_focus(False)
-        self.splash_btn.connect("clicked", lambda *_: self.toggle_splash())
+        self.splash_btn.connect("clicked", lambda *_: self.show_home())
         box.pack_start(self.splash_btn, False, False, 0)
         box.set_size_request(280, -1)
         return self.make_menu(box)
@@ -1239,7 +1394,6 @@ class Tasto(Gtk.Window):
         for i, btn in enumerate(self.font_btns):
             self.flag(btn, i == c["font"])
         self.flag(self.autosave_btn, c["autosave"])
-        self.flag(self.splash_btn, c["splash"])
 
     def set_theme(self, name):
         self.cfg["theme"] = name
@@ -1253,9 +1407,6 @@ class Tasto(Gtk.Window):
         self.cfg["colors"] = not self.cfg["colors"]
         self.apply_style()
 
-    def toggle_splash(self):
-        self.cfg["splash"] = not self.cfg["splash"]
-        self.sync_settings()
 
     def toggle_autosave(self):
         self.cfg["autosave"] = not self.cfg["autosave"]
@@ -1977,12 +2128,40 @@ class Tasto(Gtk.Window):
             # Il resto della tastiera resta nell'editor della nota; niente comandi
             # di apertura, cambio documento o formattazione sul corpo sottostante.
             return False
-        if self.splash.get_visible():           # il primo tasto chiude la schermata iniziale
+        if self.splash.get_visible():
+            if ctrl and shift and Gdk.keyval_to_lower(key) == Gdk.KEY_o:
+                self.choose_home_folder()
+                return True
+            if ctrl and Gdk.keyval_to_lower(key) == Gdk.KEY_o:
+                self.file_open()
+                return True
+            if ctrl and Gdk.keyval_to_lower(key) == Gdk.KEY_n:
+                self.file_new()
+                return True
+            if ctrl and Gdk.keyval_to_lower(key) == Gdk.KEY_q:
+                self.close()
+                return True
+            if key == Gdk.KEY_Escape:
+                self.dismiss_splash()
+                return True
+            if ctrl or state & Gdk.ModifierType.MOD1_MASK:
+                return False
             if (Gdk.keyval_name(key) or "").startswith(MODIFIER_KEYS):
                 return False
+            if key in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+                buttons = [self.home_choose_btn] + [child for container in (self.home_recent, self.home_files)
+                                                   for child in container.get_children() if isinstance(child, Gtk.Button)]
+                backwards = shift or key == Gdk.KEY_ISO_Left_Tab
+                current = self.get_focus()
+                index = ((buttons.index(current) + (-1 if backwards else 1)) % len(buttons)
+                         if current in buttons else -1 if backwards else 0)
+                buttons[index].grab_focus()
+                return True
+            if key in (Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right, Gdk.KEY_Page_Up, Gdk.KEY_Page_Down):
+                return False
+            if isinstance(self.get_focus(), Gtk.Button) and key in (Gdk.KEY_space, Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                return False
             self.dismiss_splash()
-            if self.cfg["sound"]:
-                self.typewriter.play("key")
             return True
         if key == Gdk.KEY_Escape and self._menu is not None:
             self.close_menu()
@@ -2144,6 +2323,9 @@ class Tasto(Gtk.Window):
         dlg = Gtk.FileChooserNative.new(
             "Salva con nome" if saving else "Apri", self, action,
             "_Salva" if saving else "_Apri", "_Annulla")
+        folder = (os.path.dirname(self.path) if self.path else "") or self.cfg["folder"]
+        if os.path.isdir(folder):
+            dlg.set_current_folder(folder)
         md = Gtk.FileFilter()
         md.set_name("Markdown e testo")
         for pattern in ("*.md", "*.markdown", "*.txt"):
@@ -2202,13 +2384,14 @@ class Tasto(Gtk.Window):
             if self.path is None:
                 self.remove_draft()
             self.set_content("", None)
+            self._home_viewport = None
+            self.dismiss_splash()
+            self.view.grab_focus()
 
     def file_open(self):
         path = self.choose(Gtk.FileChooserAction.OPEN)
-        if path and self.confirm():
-            if self.path is None:
-                self.remove_draft()
-            self.open_path(path)
+        if path:
+            self.open_home_file(path)
 
     def open_path(self, path):
         try:
@@ -2216,8 +2399,13 @@ class Tasto(Gtk.Window):
                 text = f.read()
         except (OSError, UnicodeDecodeError) as e:
             self.error(f"Impossibile aprire il file:\n{e}")
-            return
-        self.set_content(text, path)
+            return False
+        self.set_content(text, os.fspath(path))
+        self.remember_document(path)
+        self._home_viewport = None
+        self.dismiss_splash()
+        self.view.grab_focus()
+        return True
 
     def file_save(self, as_new=False):
         self.finish_note_action()
@@ -2235,6 +2423,7 @@ class Tasto(Gtk.Window):
             self.remove_draft()             # la bozza senza nome ora è un file vero
         self.path = path
         self.buf.set_modified(False)
+        self.remember_document(path)
         self.update_title()
         return True
 
