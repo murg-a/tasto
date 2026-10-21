@@ -57,6 +57,27 @@ def shortcut(*syms):
 win=Tasto();win.cfg['autosave']=False
 win.start();win.dismiss_splash();pump()
 x11.XSetInputFocus(display,win.get_window().get_xid(),2,0);x11.XFlush(display)
+# Live Preview: il buffer conserva sorgente e undo; il cursore rivela i marcatori.
+source = '# Titolo\n**caffè** e <u>testo</u>\n\n```md\n**letterale**\n```\nfine'
+win.set_content(source, None);pump()
+win.buf.place_cursor(win.buf.get_start_iter());pump()
+assert win.buf.get_iter_at_offset(0).has_tag(win.t_hidden) is False
+bold_start = source.index('**caffè**')
+assert win.buf.get_iter_at_offset(bold_start).has_tag(win.t_hidden)
+win.buf.set_modified(False)
+win.buf.place_cursor(win.buf.get_iter_at_offset(bold_start + 3));pump()
+assert not win.buf.get_iter_at_offset(bold_start).has_tag(win.t_hidden)
+assert win.buf.get_start_iter().has_tag(win.t_hidden)
+assert win.get_text() == source and not win.buf.get_modified()
+# Una selezione rende modificabili tutte le righe coinvolte.
+win.buf.select_range(win.buf.get_start_iter(), win.buf.get_iter_at_line(2));pump()
+assert not win.buf.get_start_iter().has_tag(win.t_hidden)
+assert not win.buf.get_iter_at_offset(bold_start).has_tag(win.t_hidden)
+win.buf.place_cursor(win.buf.get_iter_at_line(4));pump()
+assert not win.buf.get_iter_at_line(3).has_tag(win.t_hidden)
+assert not win.buf.get_iter_at_line(5).has_tag(win.t_hidden)
+assert win.get_text() == source
+print('PASS: Live Preview rivela riga, selezione e blocco attivo senza modificare la sorgente.')
 text=''.join(f'Paragrafo {i:03}: una riga per verificare lo scorrimento.\n\n' for i in range(100))
 win.set_content(text,None);pump()
 win.view.grab_focus()
