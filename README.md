@@ -128,6 +128,9 @@ La dimensione del pannello si adatta alla finestra (fino a circa 900 × 640 px).
 La barra destra mostra l'elenco delle note: cliccando sul testo di una nota
 torni al suo richiamo nel documento, che viene selezionato; **Modifica** apre
 l'editor sovrapposto. Se il richiamo è ripetuto si raggiunge il primo.
+Anche il percorso inverso funziona: un clic su `[^n]` nel corpo del documento
+apre l'editor della relativa nota. Trascinare per selezionare il testo non apre
+l'editor; i richiami negli esempi di codice non sono attivi.
 Annullare una nota appena creata lascia una nota vuota, rimovibile con Ctrl+Z.
 Durante la modifica, il documento sottostante è bloccato; per chiudere Tasto
 occorre prima salvare o annullare la nota.
@@ -136,7 +139,19 @@ Le note appartengono al documento, a differenza degli appunti condivisi:
 sono salvate come Markdown standard, con `[^1]` nel testo e `[^1]: contenuto`
 in fondo al documento. Le definizioni sono visibili anche nel corpo del testo.
 Modifiche e inserimenti seguono il normale salvataggio/autosalvataggio e sono
-annullabili. I numeri restano stabili; non vengono rinumerati quando sposti il testo.
+annullabili. I numeri seguono automaticamente la prima posizione dei richiami
+nel testo. Inserendo una nota prima della 5, la nuova diventa 5 e la precedente
+5 diventa 6: vengono aggiornati insieme richiami, definizioni ed elenco laterale.
+La numerazione viene riordinata anche aprendo documenti esistenti.
+
+Cancellare un richiamo completo rimuove la definizione quando non ci sono più
+altri richiami alla stessa nota. **Backspace** subito dopo `[^n]` o **Canc**
+subito prima lo elimina come unità. Puoi anche selezionarlo e cancellarlo.
+Eliminare una definizione completa nel Markdown rimuove i richiami corrispondenti.
+La rinumerazione e la cancellazione automatica fanno parte della stessa azione:
+un solo **Ctrl+Z** ripristina testo, nota e numeri; **Ctrl+Y** ripete l'operazione.
+Modifiche parziali alla sintassi non cancellano il contenuto della nota.
+Le definizioni già prive di richiamo in un file importato vengono conservate.
 Aprendo di nuovo il file, le note ricompaiono nella barra destra.
 
 ### Font dell'interfaccia
@@ -182,7 +197,9 @@ Il test usa cartelle temporanee per preferenze, appunti e bozze. Verifica
 formattazione e annullamento, aggiunta note da tastiera e menu senza salti
 di scorrimento, Ctrl+Invio, modifica e annullamento degli appunti, persistenza
 su disco, gestione del salvataggio fallito, navigazione ai richiami e ripristino
-della scheda destra al riavvio. Non eseguirlo sul display in uso: genera eventi
+della scheda destra al riavvio. Verifica inoltre rinumerazione per posizione,
+clic nativo sui richiami, cancellazione collegata e recupero con annulla/ripeti,
+incluso il caso di una nota con più richiami. Non eseguirlo sul display in uso: genera eventi
 di tastiera. Nel cloud è stato eseguito con GTK 3, GtkSourceView 4 e Xvfb.
 
 Il parser CSS di GTK 3 è stato verificato anche sulle 21 combinazioni di temi e font.

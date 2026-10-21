@@ -142,6 +142,64 @@ assert win.on_delete() is False
 win.destroy();pump(.1)
 second=Tasto();second.cfg['autosave']=False;second.start();second.dismiss_splash();pump()
 assert second.right_stack.get_visible_child_name()=='footnotes', (second.cfg['right_page'],second.right_stack.get_visible_child_name())
+# Numerazione per posizione, clic reciproco e cancellazione atomica con annulla/ripeti.
+win = second
+x11.XSetInputFocus(display,win.get_window().get_xid(),2,0);x11.XFlush(display)
+baseline='Alfa[^1] Beta[^2] Gamma[^3].\n\n[^1]: prima\n[^2]: seconda\n[^3]: terza\n'
+win.set_content(baseline,None);win.view.grab_focus();pump()
+win.buf.place_cursor(win.buf.get_iter_at_offset(baseline.index('Beta')))
+shortcut(Gdk.KEY_Control_L,Gdk.KEY_Shift_L,Gdk.KEY_n)
+assert win._editing_note=='2'
+win.note_editor.get_buffer().set_text('inserita prima di Beta')
+shortcut(Gdk.KEY_Control_L,Gdk.KEY_Return)
+from tasto.footnotes import notes, reference_offset, references
+assert {n.number:n.content for n in notes(win.get_text())}=={'1':'prima','2':'inserita prima di Beta','3':'seconda','4':'terza'}
+assert 'Beta[^3]' in win.get_text()
+print('PASS: inserimento prima di una nota rinumera richiami e contenuti associati.')
+# Clic nativo sul richiamo, non chiamata diretta al callback.
+position=reference_offset(win.get_text(),'3')
+iterator=win.buf.get_iter_at_offset(position)
+win.view.scroll_to_iter(iterator,.1,True,.5,.5);pump()
+rectangle=win.view.get_iter_location(iterator)
+x,y=win.view.buffer_to_window_coords(Gtk.TextWindowType.TEXT,rectangle.x+max(1,rectangle.width//2),rectangle.y+rectangle.height//2)
+_,origin_x,origin_y=win.view.get_window(Gtk.TextWindowType.TEXT).get_origin()
+xtst.XTestFakeMotionEvent.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_ulong]
+xtst.XTestFakeButtonEvent.argtypes=[ctypes.c_void_p,ctypes.c_uint,ctypes.c_int,ctypes.c_ulong]
+xtst.XTestFakeMotionEvent(display,0,origin_x+x,origin_y+y,0)
+xtst.XTestFakeButtonEvent(display,1,1,0);xtst.XTestFakeButtonEvent(display,1,0,0)
+x11.XFlush(display);pump()
+assert win._editing_note=='3',win._editing_note
+assert win.note_editor.get_buffer().get_text(*win.note_editor.get_buffer().get_bounds(),True)=='seconda'
+win.cancel_margin_note();pump()
+print('PASS: clic X11 sul richiamo apre la nota corretta.')
+# Backspace al termine del marcatore rimuove richiamo e definizione insieme.
+before=win.get_text();position=reference_offset(before,'3')
+win.buf.place_cursor(win.buf.get_iter_at_offset(position+4));win.view.grab_focus()
+shortcut(Gdk.KEY_BackSpace)
+after=win.get_text()
+assert 'seconda' not in after and 'Gamma[^3]' in after
+shortcut(Gdk.KEY_Control_L,Gdk.KEY_z)
+assert win.get_text()==before
+shortcut(Gdk.KEY_Control_L,Gdk.KEY_y)
+assert win.get_text()==after
+print('PASS: cancellazione richiamo, rinumerazione, Ctrl+Z e Ctrl+Y ripristinano anche il contenuto.')
+# Cancellazione della definizione: rimuove anche il richiamo nel corpo.
+win.set_content(baseline,None);pump()
+note=notes(win.get_text())[1]
+win.buf.select_range(win.buf.get_iter_at_offset(note.start),win.buf.get_iter_at_offset(note.end))
+shortcut(Gdk.KEY_Delete)
+assert 'seconda' not in win.get_text() and win.get_text().startswith('Alfa[^1] Beta Gamma[^2]')
+shortcut(Gdk.KEY_Control_L,Gdk.KEY_z)
+assert win.get_text()==baseline
+# Più richiami: il primo eliminato non cancella la nota ancora citata.
+reused='A[^1] B[^1] C[^2]\n\n[^1]: condivisa\n[^2]: altra\n'
+win.set_content(reused,None);win.view.grab_focus();pump()
+win.buf.select_range(win.buf.get_iter_at_offset(1),win.buf.get_iter_at_offset(5))
+shortcut(Gdk.KEY_Delete)
+assert 'condivisa' in win.get_text() and len([r for r in references(win.get_text()) if r.number=='1'])==1
+shortcut(Gdk.KEY_Control_L,Gdk.KEY_z)
+assert win.get_text()==reused
+print('PASS: dipendenza inversa e conservazione delle note con richiami ripetuti.')
 second.buf.set_modified(False);second.destroy();pump(.1)
 print('PASS: la scheda selezionata è ricordata al riavvio.')
 

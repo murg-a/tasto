@@ -30,7 +30,7 @@ verranno usati i tuoi.
 
 import bisect
 from .formatting import format_edit
-from .footnotes import notes as document_notes, add_note as add_footnote, update_note, reference_offset
+from .footnotes import notes as document_notes, add_note as add_footnote, update_note, reference_offset, references, synchronize_notes, reconcile_notes
 from pathlib import Path
 import json
 import math
@@ -536,6 +536,10 @@ class Tasto(Gtk.Window):
         self._footnote_key = None
         self._editing_note = None
         self._viewport_restore = 0
+        self._note_sync_source = 0
+        self._holding_note_action = False
+        self._mutating_notes = False
+        self._undoing_notes = False
         self.set_default_size(*self.cfg["win"])
 
         self.provider = Gtk.CssProvider()
@@ -573,6 +577,8 @@ class Tasto(Gtk.Window):
         self.view.set_bottom_margin(120)
         self.view.add_events(Gdk.EventMask.SMOOTH_SCROLL_MASK)
         self.view.connect("scroll-event", self.on_scroll)
+        self.view.connect("button-press-event", self.on_reference_event)
+        self.view.connect("button-release-event", self.on_reference_event)
         self.editor_sw = Gtk.ScrolledWindow()
         self.editor_sw.add(self.view)
 
@@ -600,6 +606,12 @@ class Tasto(Gtk.Window):
         }
         self.md_tags = self.t_h + [self.t_mark] + list(self.tags.values())
         self.t_find = b.create_tag("find")   # creato per ultimo: ha la precedenza
+        b.connect("begin-user-action", self.begin_note_action)
+        b.connect("delete-range", self.record_note_deletion)
+        b.connect("undo", self.before_note_undo)
+        b.connect_after("undo", self.after_note_undo)
+        b.connect("redo", self.before_note_undo)
+        b.connect_after("redo", self.after_note_undo)
         b.connect("changed", self.on_changed)
         b.connect("modified-changed", lambda *_: self.update_title())
 
@@ -1331,6 +1343,71 @@ class Tasto(Gtk.Window):
 
     # --- Stile markdown, indice e conteggi -----------------------------------------
 
+    def begin_note_action(self, buffer):
+        if self._mutating_notes or self._undoing_notes or self._holding_note_action:
+            return
+        self._note_action_before = self.get_text()
+        self._deleted_note_refs = set()
+        self._deleted_note_defs = set()
+        self._holding_note_action = True
+        # Mantiene aperta l'azione nativa fino alla sincronizzazione al prossimo idle.
+        buffer.begin_user_action()
+        self._note_sync_source = GLib.idle_add(self.finish_note_action)
+
+    def record_note_deletion(self, _buffer, start, end):
+        if not self._holding_note_action or self._mutating_notes or self._undoing_notes:
+            return
+        text = self.get_text()
+        a, b = start.get_offset(), end.get_offset()
+        self._deleted_note_refs.update(ref.number for ref in references(text) if a <= ref.start and ref.end <= b)
+        self._deleted_note_defs.update(note.number for note in document_notes(text)
+                                      if a <= note.start and note.start + len(text[note.start:note.end].rstrip('\r\n')) <= b)
+
+    def finish_note_action(self):
+        if self._note_sync_source:
+            GLib.source_remove(self._note_sync_source)
+            self._note_sync_source = 0
+        if not self._holding_note_action:
+            return False
+        try:
+            text = self.get_text()
+            cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
+            normalized, cursor, _mapping = reconcile_notes(self._note_action_before, text, cursor,
+                                                          self._deleted_note_refs, self._deleted_note_defs)
+            if normalized != text:
+                self.replace_document(normalized, cursor)
+        finally:
+            self._holding_note_action = False
+            self.buf.end_user_action()
+        return False
+
+    def before_note_undo(self, *_):
+        self.finish_note_action()
+        self._undoing_notes = True
+
+    def after_note_undo(self, *_):
+        self._undoing_notes = False
+
+    def on_reference_event(self, _widget, event):
+        if event.type == Gdk.EventType.BUTTON_PRESS and event.button == 1:
+            self._reference_press = (event.x, event.y)
+        elif event.type == Gdk.EventType.BUTTON_RELEASE and event.button == 1:
+            press = getattr(self, "_reference_press", None)
+            self._reference_press = None
+            if press and abs(press[0] - event.x) < 5 and abs(press[1] - event.y) < 5:
+                self.finish_note_action()
+                window_type = self.view.get_window_type(event.window)
+                x, y = self.view.window_to_buffer_coords(window_type, int(event.x), int(event.y))
+                inside, iterator = self.view.get_iter_at_location(x, y)
+                if not inside:
+                    return False
+                offset = iterator.get_offset()
+                ref = next((ref for ref in references(self.get_text()) if ref.start <= offset < ref.end), None)
+                if ref:
+                    self.edit_margin_note(ref.number)
+                    return True
+        return False
+
     def on_changed(self, *_):
         self.schedule()
         self.schedule_autosave()
@@ -1692,6 +1769,8 @@ class Tasto(Gtk.Window):
             tail += 1
         old_end = len(original) - tail
         new_end = len(text) - tail
+        was_mutating = self._mutating_notes
+        self._mutating_notes = True
         self.buf.begin_user_action()
         try:
             self.buf.delete(self.buf.get_iter_at_offset(first), self.buf.get_iter_at_offset(old_end))
@@ -1699,6 +1778,7 @@ class Tasto(Gtk.Window):
             self.buf.place_cursor(self.buf.get_iter_at_offset(min(cursor, len(text))))
         finally:
             self.buf.end_user_action()
+            self._mutating_notes = was_mutating
         self.restore_document_viewport(position)
 
     def activate_note_shortcut(self, *_):
@@ -1708,8 +1788,11 @@ class Tasto(Gtk.Window):
         return True
 
     def add_margin_note(self):
+        self.finish_note_action()
         cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
         text, cursor, number = add_footnote(self.get_text(), cursor)
+        text, cursor, mapping = synchronize_notes(text, cursor)
+        number = mapping[number]
         self.replace_document(text, cursor)
         self.close_menu()
         self.cfg["notes"] = True
@@ -1721,7 +1804,7 @@ class Tasto(Gtk.Window):
         self.edit_margin_note(number)
 
     def refresh_margin_notes(self, text):
-        entries = document_notes(text)
+        entries = sorted(document_notes(text), key=lambda note: int(note.number))
         key = tuple((note.number, note.content) for note in entries)
         if key == self._footnote_key:
             return
@@ -1802,6 +1885,7 @@ class Tasto(Gtk.Window):
             self.note_panel.set_size_request(*size)
 
     def edit_margin_note(self, number):
+        self.finish_note_action()
         matches = [note for note in document_notes(self.get_text()) if note.number == number]
         if len(matches) != 1:
             self.error("Numero di nota assente o duplicato: correggi le definizioni Markdown.")
@@ -1882,6 +1966,7 @@ class Tasto(Gtk.Window):
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
         key = e.keyval
+        self.finish_note_action()
         if self._editing_note is not None:
             if ctrl and key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
                 self.save_margin_note()
@@ -1905,6 +1990,16 @@ class Tasto(Gtk.Window):
         if ctrl and shift and Gdk.keyval_to_lower(key) == Gdk.KEY_n:
             return self.activate_note_shortcut()
         in_editor = self.get_focus() is self.view
+        if in_editor and not state and key in (Gdk.KEY_BackSpace, Gdk.KEY_Delete) and not self.buf.get_has_selection():
+            cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
+            ref = next((ref for ref in references(self.get_text())
+                        if (key == Gdk.KEY_BackSpace and ref.end == cursor)
+                        or (key == Gdk.KEY_Delete and ref.start == cursor)), None)
+            if ref:
+                self.buf.begin_user_action()
+                self.buf.delete(self.buf.get_iter_at_offset(ref.start), self.buf.get_iter_at_offset(ref.end))
+                self.buf.end_user_action()
+                return True
         if (self.cfg["sound"] and in_editor
                 and not state & (Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.MOD1_MASK)):
             self.key_sound(key)
@@ -1996,6 +2091,7 @@ class Tasto(Gtk.Window):
         self.autosave_now()
 
     def autosave_now(self):
+        self.finish_note_action()
         """Con un file aperto lo salva; senza nome conserva una bozza da ripristinare."""
         if not self.cfg["autosave"] or not self.buf.get_modified():
             return
@@ -2084,10 +2180,18 @@ class Tasto(Gtk.Window):
         return response == Gtk.ResponseType.REJECT
 
     def set_content(self, text, path):
+        self.finish_note_action()
+        if self._viewport_restore:
+            GLib.source_remove(self._viewport_restore)
+            self._viewport_restore = 0
+        original = text
+        text, _cursor, _mapping = synchronize_notes(text)
+        self._mutating_notes = True
         self.buf.begin_not_undoable_action()
         self.buf.set_text(text)
         self.buf.end_not_undoable_action()
-        self.buf.set_modified(False)
+        self._mutating_notes = False
+        self.buf.set_modified(text != original)
         self.buf.place_cursor(self.buf.get_start_iter())
         self.path = path
         self._autosave_failed = False
@@ -2116,6 +2220,7 @@ class Tasto(Gtk.Window):
         self.set_content(text, path)
 
     def file_save(self, as_new=False):
+        self.finish_note_action()
         path = self.path
         if as_new or not path:
             path = self.choose(Gtk.FileChooserAction.SAVE)
@@ -2134,6 +2239,7 @@ class Tasto(Gtk.Window):
         return True
 
     def on_delete(self, *_):
+        self.finish_note_action()
         if self._editing_note is not None:
             self.note_status.set_text("Salva o annulla la modifica prima di chiudere Tasto.")
             self.note_editor.grab_focus()
