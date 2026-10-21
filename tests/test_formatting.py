@@ -1,5 +1,5 @@
 import unittest
-from tasto.formatting import format_edit
+from tasto.formatting import format_edit, list_newline_edit
 
 
 def apply(text, start, end, command):
@@ -40,3 +40,50 @@ class FormattingTests(unittest.TestCase):
 
     def test_last_empty_line_can_start_list(self):
         self.assertEqual(apply('uno\n', 4, 4, 'bullet'), ('uno\n- ', (6, 6)))
+
+
+class ListNewlineTests(unittest.TestCase):
+    def enter(self, text, start=None, end=None):
+        start = len(text) if start is None else start
+        end = start if end is None else end
+        edit = list_newline_edit(text, start, end)
+        if edit is None:
+            return None
+        a, b, replacement = edit
+        return text[:a] + replacement + text[b:], a + len(replacement)
+
+    def test_bullet_preserves_marker_and_indentation(self):
+        for prefix in ('- ', '+ ', '* ', '  - ', '  *  '):
+            text = prefix + 'caffè'
+            self.assertEqual(self.enter(text), (text + '\n' + prefix, len(text) + 1 + len(prefix)))
+
+    def test_number_increments_and_preserves_delimiter(self):
+        for text, next_prefix in [('9. voce', '10. '), ('19) voce', '20) '),
+                                  ('  2. voce', '  3. '), ('009. voce', '010. ')]:
+            self.assertEqual(self.enter(text)[0], text + '\n' + next_prefix)
+
+    def test_empty_item_exits_without_adding_a_blank_item(self):
+        for prefix, expected in [('- ', ''), ('12. ', ''), ('  +  ', '  '), ('3)', '')]:
+            self.assertEqual(self.enter('prima\n' + prefix), ('prima\n' + expected, 6 + len(expected)))
+
+    def test_enter_splits_a_list_item_at_the_cursor(self):
+        self.assertEqual(self.enter('3. caffè caldo', 8), ('3. caffè\n4.  caldo', 12))
+
+    def test_single_line_selection_is_replaced(self):
+        self.assertEqual(self.enter('- uno due tre', 5, 9), ('- uno\n-  tre', 8))
+
+    def test_selection_touching_marker_or_other_lines_uses_native_enter(self):
+        for text, start, end in [('- voce', 0, 3), ('- voce\n- altra', 3, 10)]:
+            self.assertIsNone(self.enter(text, start, end))
+
+    def test_code_fences_and_indented_code_do_not_continue_lists(self):
+        for text, cursor in [('```md\n- codice\n```', 14), ('~~~\n1. codice', 13),
+                             ('    - codice', 12), ('\t1. codice', 10)]:
+            self.assertIsNone(self.enter(text, cursor))
+
+    def test_plain_text_quotes_and_thematic_breaks_are_unchanged(self):
+        for text in ('testo', '> citazione', '---', '* * *', '- - -', r'\- letterale'):
+            self.assertIsNone(self.enter(text))
+
+    def test_following_paragraph_is_preserved(self):
+        self.assertEqual(self.enter('- voce\nseguito', 6), ('- voce\n- \nseguito', 9))

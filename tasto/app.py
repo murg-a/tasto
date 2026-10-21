@@ -29,7 +29,7 @@ verranno usati i tuoi.
 """
 
 import bisect
-from .formatting import format_edit
+from .formatting import format_edit, list_newline_edit
 from .preview import parse as parse_preview, active_lines
 from .library import markdown_files, recent_in_folder, remember_file
 from .footnotes import notes as document_notes, add_note as add_footnote, update_note, reference_offset, references, synchronize_notes, reconcile_notes
@@ -134,8 +134,6 @@ def extra_css():
 
 # --- Markdown ------------------------------------------------------------------
 
-QUOTE = re.compile(r"^\s{0,3}>")
-LIST = re.compile(r"^\s*([-+*]|\d{1,3}[.)])(?=\s)")
 WORD = re.compile(r"\S*\w\S*")
 
 HELP = [
@@ -576,6 +574,7 @@ class Tasto(Gtk.Window):
         self.view.set_bottom_margin(120)
         self.view.add_events(Gdk.EventMask.SMOOTH_SCROLL_MASK)
         self.view.connect("scroll-event", self.on_scroll)
+        self.view.connect("key-press-event", self.on_editor_key)
         self.view.connect("button-press-event", self.on_reference_event)
         self.view.connect("button-release-event", self.on_reference_event)
         self.editor_sw = Gtk.ScrolledWindow()
@@ -605,6 +604,7 @@ class Tasto(Gtk.Window):
         }
         self.md_tags = self.t_h + [self.t_mark] + list(self.tags.values())
         self.t_hidden = b.create_tag("preview-hidden", invisible=True)
+        self._paragraph_tags = {}
         self._preview_lines = []
         self._preview_active = set()
         self._preview_idle = 0
@@ -1415,6 +1415,7 @@ class Tasto(Gtk.Window):
         self.flag(self.color_btn, c["colors"])
         self.flag(self.sound_btn, c["sound"])
         self.sync_settings()
+        self.schedule()  # Ricalcola i rientri anche dopo cambi di font o zoom.
         self.tree.queue_draw()
         if self.search.get_text():
             self._results_key = None
@@ -1523,6 +1524,7 @@ class Tasto(Gtk.Window):
             self._margins = (left, right)
             self.view.set_left_margin(left)
             self.view.set_right_margin(right)
+            self.update_paragraph_margins()
         return False
 
     # --- Stile markdown, indice e conteggi -----------------------------------------
@@ -1674,15 +1676,45 @@ class Tasto(Gtk.Window):
             for name, a, b in line.spans:
                 tag = self.t_h[int(name[1:]) - 1] if name.startswith('h') and name[1:].isdigit() else self.tags[name]
                 self.tag_range(tag, n, a, b)
-            if QUOTE.match(line.text):
-                self.tag_range(self.tags["quote"], n, 0, len(line.text))
-            marker = LIST.match(line.text)
-            if marker:
-                self.tag_range(self.tags["list"], n, *marker.span(1))
             if n not in self._preview_active:
                 for a, b in line.hidden:
                     self.tag_range(self.t_hidden, n, a, b)
+        self.style_paragraphs()
         return heads
+
+    def update_paragraph_margins(self):
+        # GtkTextTag:left-margin sostituisce il margine di GtkTextView.
+        # Sommare il margine della colonna mantiene il testo centrato.
+        _, _, scale = FONTS[self.cfg["font"]]
+        padding = round(self.cfg["size"] * scale * 96 / 72 * 1.5)
+        base = self.view.get_left_margin() + padding
+        for width, tag in self._paragraph_tags.items():
+            left = base + width
+            if tag.get_property("left-margin") != left:
+                tag.set_property("left-margin", left)
+
+    def style_paragraphs(self):
+        start, end = self.buf.get_bounds()
+        for tag in self._paragraph_tags.values():
+            self.buf.remove_tag(tag, start, end)
+        layout = self.view.create_pango_layout("")
+        widths, used = {}, set()
+        for n, line in enumerate(self._preview_lines):
+            prefix = line.list_prefix or line.quote_prefix
+            if prefix is None:
+                continue
+            if prefix not in widths:
+                layout.set_text(prefix, -1)
+                widths[prefix] = layout.get_pixel_size()[0]
+            width = widths[prefix]
+            if width not in self._paragraph_tags:
+                # Un tag per larghezza, condiviso anche fra numeri diversi.
+                self._paragraph_tags[width] = self.buf.create_tag(None, indent=-width)
+            used.add(width)
+            self.tag_range(self._paragraph_tags[width], n, 0, len(line.text))
+        self.update_paragraph_margins()
+        for width in self._paragraph_tags.keys() - used:
+            self.buf.get_tag_table().remove(self._paragraph_tags.pop(width))
 
     def update_counts(self, text):
         self._chars = len(text) - text.count("\n")  # spazi inclusi, a capo esclusi
@@ -2174,6 +2206,30 @@ class Tasto(Gtk.Window):
         else:
             return
         self.typewriter.play(name)
+
+    def on_editor_key(self, _view, event):
+        state = event.state & Gtk.accelerator_get_default_mod_mask()
+        if state or event.keyval not in (Gdk.KEY_Return, Gdk.KEY_KP_Enter) or not self.view.get_editable():
+            return False
+        self.finish_note_action()
+        bounds = self.buf.get_selection_bounds()
+        if bounds:
+            start, end = (it.get_offset() for it in bounds)
+        else:
+            start = end = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
+        edit = list_newline_edit(self.get_text(), start, end)
+        if edit is None:
+            return False
+        a, b, replacement = edit
+        self.buf.begin_user_action()
+        try:
+            self.buf.delete(self.buf.get_iter_at_offset(a), self.buf.get_iter_at_offset(b))
+            self.buf.insert(self.buf.get_iter_at_offset(a), replacement)
+            self.buf.place_cursor(self.buf.get_iter_at_offset(a + len(replacement)))
+        finally:
+            self.buf.end_user_action()
+        self.view.scroll_mark_onscreen(self.buf.get_insert())
+        return True
 
     def on_key(self, _w, e):
         state = e.state & Gtk.accelerator_get_default_mod_mask()

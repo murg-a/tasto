@@ -78,6 +78,58 @@ assert not win.buf.get_iter_at_line(3).has_tag(win.t_hidden)
 assert not win.buf.get_iter_at_line(5).has_tag(win.t_hidden)
 assert win.get_text() == source
 print('PASS: Live Preview rivela riga, selezione e blocco attivo senza modificare la sorgente.')
+# Liste e citazioni: rientro del paragrafo e righe visive allineate al testo.
+def assert_hanging_indent(prefix):
+    content = win.buf.get_iter_at_offset(len(prefix))
+    wrapped = win.buf.get_start_iter()
+    assert win.view.forward_display_line(wrapped)
+    assert wrapped.get_line() == 0 and wrapped.get_offset() > len(prefix)
+    first_x = win.view.get_iter_location(content).x
+    wrap_x = win.view.get_iter_location(wrapped).x
+    assert first_x > win.view.get_left_margin()
+    assert abs(first_x - wrap_x) <= 2, (prefix, first_x, wrap_x)
+
+for prefix in ('- ', '123. ', '> '):
+    win.set_content(prefix + 'Una voce lunga con parole da mandare a capo. ' * 40, None)
+    win.buf.place_cursor(win.buf.get_start_iter());pump()
+    assert_hanging_indent(prefix)
+    before = win.get_text()
+    extra = win.view.get_iter_location(win.buf.get_iter_at_offset(len(prefix))).x - win.view.get_left_margin()
+    win.toggle_sidebar();pump()
+    assert_hanging_indent(prefix)
+    shifted = win.view.get_iter_location(win.buf.get_iter_at_offset(len(prefix))).x - win.view.get_left_margin()
+    assert abs(extra - shifted) <= 2
+    win.toggle_sidebar();pump()
+    old_size = win.cfg['size']
+    win.change_size(2);pump();assert_hanging_indent(prefix)
+    win.cfg['size'] = old_size;win.apply_style();pump()
+    assert win.get_text() == before
+print('PASS: liste e citazioni con rientro sporgente, ritorni visivi, zoom e colonna centrata.')
+# Invio nativo: prefisso, numero successivo, voce vuota, annulla/ripeti.
+win.set_content('- caffè', None);win.view.grab_focus();pump()
+win.buf.place_cursor(win.buf.get_end_iter())
+shortcut(Gdk.KEY_Return)
+assert win.get_text() == '- caffè\n- '
+shortcut(Gdk.KEY_Control_L, Gdk.KEY_z)
+assert win.get_text() == '- caffè'
+shortcut(Gdk.KEY_Control_L, Gdk.KEY_y)
+assert win.get_text() == '- caffè\n- '
+shortcut(Gdk.KEY_Return)
+assert win.get_text() == '- caffè\n'
+shortcut(Gdk.KEY_Control_L, Gdk.KEY_z)
+assert win.get_text() == '- caffè\n- '
+win.set_content('9) voce', None);win.buf.place_cursor(win.buf.get_end_iter());pump()
+shortcut(Gdk.KEY_Return)
+assert win.get_text() == '9) voce\n10) '
+win.set_content('- voce', None);win.buf.place_cursor(win.buf.get_end_iter());pump()
+shortcut(Gdk.KEY_Shift_L, Gdk.KEY_Return)
+assert win.get_text() == '- voce\n'
+code_source = '```\n- codice\n> citazione\n```'
+win.set_content(code_source, None);win.buf.place_cursor(win.buf.get_iter_at_offset(12));pump()
+assert not any(tag.get_property('left-margin-set') for tag in win.buf.get_iter_at_line(1).get_tags())
+shortcut(Gdk.KEY_Return)
+assert win.get_text() == '```\n- codice\n\n> citazione\n```'
+print('PASS: Invio continua le liste, incrementa i numeri e chiude le voci vuote; Shift+Invio e codice conservano il comportamento nativo; undo/redo atomici.')
 text=''.join(f'Paragrafo {i:03}: una riga per verificare lo scorrimento.\n\n' for i in range(100))
 win.set_content(text,None);pump()
 win.view.grab_focus()
