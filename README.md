@@ -189,6 +189,38 @@ modifiche; **Annulla** o **Esc** le scarta. Il documento centrale resta invariat
 Gli appunti modificati vengono salvati subito nel loro file JSON, con scrittura
 atomica. Un errore di salvataggio lascia l'editor aperto e conserva il testo.
 
+### Paragrafi: parcheggio nel pannello destro
+
+La scheda **Paragrafi** contiene blocchi del documento aperto, separati dagli
+appunti condivisi e dalle note. Passa il mouse sul testo: la maniglia **⠿**
+compare nel margine sinistro del blocco. Trascinala verso il pannello destro:
+il testo viene spostato in una card e la scheda Paragrafi si apre automaticamente.
+Se il pannello è nascosto, viene mostrato all'inizio del trascinamento.
+
+Trascina la card nel testo per reinserirla: il cursore indica il punto di
+rilascio e vengono aggiunte le righe vuote necessarie a separare i paragrafi.
+Puoi anche usare **Inserisci al cursore**. Il trasferimento sposta il contenuto,
+senza lasciare copie nel parcheggio. **Ctrl+Z / Ctrl+Y** annullano e ripetono
+insieme la modifica del documento e della card, durante la sessione corrente.
+
+Un blocco comprende le righe consecutive separate da righe vuote; un blocco
+di codice delimitato da backtick o tilde viene conservato intero anche se
+contiene righe vuote. Le note a margine seguono i paragrafi che le richiamano:
+quelle ancora richiamate altrove rimangono anche nel documento; al reinserimento
+la numerazione viene riconciliata. Le definizioni delle note non si parcheggiano
+direttamente: sposta invece il paragrafo che contiene il richiamo.
+
+Il parcheggio è salvato automaticamente in `~/.config/tasto/paragraphs/`
+(o nella corrispondente directory XDG), con un file JSON per percorso del documento.
+Contiene anche un'istantanea di recupero per gli spostamenti non ancora salvati,
+compresi quelli effettuati con autosalvataggio disattivato. Alla riapertura viene
+recuperata solo se il file non è cambiato esternamente; altrimenti viene mantenuto
+il file esterno e un messaggio nella scheda segnala il conflitto. **Scarta** nel
+dialogo di salvataggio ripristina anche il parcheggio dell'ultimo salvataggio.
+**Salva con nome** copia il parcheggio sul nuovo documento. Il Markdown non
+contiene metadati aggiuntivi; trasferire soltanto il file `.md` su un altro
+computer non trasferisce le card. La vista Mappa non fa parte di questa fase.
+
 ### Note a margine
 
 Dal menu **+ → Aggiungi nota**, o con **Ctrl+Shift+N**, inserisci il richiamo
@@ -279,3 +311,12 @@ passaggio fra colonne affiancate e sezioni verticali ridimensionando la finestra
 di tastiera. Nel cloud è stato eseguito con GTK 3, GtkSourceView 4 e Xvfb.
 
 Il parser CSS di GTK 3 è stato verificato anche sulle 21 combinazioni di temi e font.
+
+Test del parcheggio con trascinamento X11 reale su display virtuale isolato:
+
+```sh
+xvfb-run -a /usr/bin/python3 tests/gtk_paragraphs.py
+```
+
+Verifica spostamenti nei due sensi, maniglia al passaggio del mouse, annulla/ripeti,
+riapertura e recupero, isolamento per documento e note a margine associate.

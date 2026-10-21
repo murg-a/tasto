@@ -97,7 +97,7 @@
 }
 #note-panel button:hover { background-color: @sel@; }
 
-#rightpane stackswitcher button { padding: 6px 12px; border-color: transparent; }
+#rightpane stackswitcher button { padding: 6px 8px; border-color: transparent; }
 #rightpane stackswitcher button:checked { background-color: @sel@; border-color: @line@; }
 #rightpane stackswitcher button:checked label { color: @fg@; }
 
@@ -123,3 +123,19 @@
 #splash #home-library button:hover { background-color: @sel@; }
 #splash #home-library button:focus { background-color: @sel@; border-color: @dim@; }
 #splash label.home-shortcuts { font-size: @ui@pt; color: @dim@; }
+
+#paragraph-card {
+    background-color: @bg@;
+    border: 1px solid @line@;
+    border-radius: 6px;
+}
+#paragraph-card:hover { border-color: @dim@; }
+#paragraph-grip {
+    background-image: none;
+    background-color: @bg@;
+    color: @dim@;
+    border: none;
+    box-shadow: none;
+    padding: 2px 6px;
+}
+#paragraph-grip:hover { background-color: @sel@; color: @fg@; }
