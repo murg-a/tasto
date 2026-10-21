@@ -1,60 +1,84 @@
 # Tasto
 
-Prototipo di un editor Markdown minimale per Linux, scritto in Python e GTK 4.
-Questa è una prima base di sviluppo: l'interfaccia grafica deve ancora essere
-collaudata su un sistema con GTK 4 e un display disponibile.
+Editor Markdown minimale per Linux, in Python, GTK 3 e GtkSourceView 4.
+Questa versione adotta come base il file `scrivi3.py` fornito dall'autore del
+progetto, con l'interfaccia mostrata negli screenshot. Il prototipo precedente
+con GTK 4 resta recuperabile dalla cronologia Git.
 
-## Avvio su Linux
+## Installazione e avvio
 
-Su Debian o Ubuntu, apri il Terminale e installa i componenti grafici:
+Su Debian, Ubuntu o Linux Mint:
 
 ```sh
 sudo apt update
-sudo apt install python3 python3-gi gir1.2-gtk-4.0
+sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-gtksource-4
 ```
 
-Entra nella cartella del progetto e avvia:
+Font consigliati (opzionali; in assenza vengono usati quelli di sistema):
+
+```sh
+sudo apt install fonts-ibm-plex fonts-noto-core
+```
+
+Dalla cartella del progetto:
 
 ```sh
 /usr/bin/python3 -m tasto
 ```
 
-Non servono pip, un account o credenziali. Usa il Python di sistema perché
-contiene il collegamento a GTK installato dal gestore dei pacchetti.
+Puoi anche aprire un documento direttamente:
 
-## Uso del prototipo
+```sh
+/usr/bin/python3 -m tasto percorso/documento.md
+```
 
-- Scrivi direttamente al centro della finestra.
-- `Ctrl+N`: nuovo; `Ctrl+O`: apri; `Ctrl+S`: salva; `Ctrl+Shift+S`: salva con nome.
-- `Ctrl+Q`: chiudi. Le modifiche non salvate richiedono conferma prima di essere scartate.
-- Il pulsante ☰ mostra indice e ricerca della prima corrispondenza.
-- Il pulsante + inserisce alcuni marcatori Markdown; seleziona il testo per grassetto, corsivo e barrato.
-- Seleziona uno dei sette temi e usa ⚙ per carattere, dimensione e colonna.
-- Il pulsante ▤ mostra appunti temporanei. **Gli appunti non vengono salvati e si perdono alla chiusura.**
+Questa versione richiede GTK **3**, anche se avevi già installato GTK 4.
+Non servono pip o credenziali. Per aggiornare una copia scaricata con Git,
+chiudi prima Tasto, entra nella cartella del progetto ed esegui `git pull`.
 
-Il testo resta Markdown visibile, senza anteprima renderizzata. Il salvataggio
-usa UTF-8 e sostituisce il file solo dopo avere completato la scrittura.
+## Funzioni presenti nella base importata
 
-## Percorso di sviluppo
+- Schermata iniziale «premi un TASTO», colonna centrata e barre laterali richiudibili.
+- Tre temi, tre famiglie di font, dimensione e larghezza regolabili.
+- Evidenziazione Markdown, indice collassabile (tre livelli), ricerca con anteprime.
+- Conteggi e obiettivo di parole con barra di avanzamento.
+- Appunti persistenti: incolla, copia dalla selezione e inserisci nel documento.
+- Menu di elementi ASCII, aiuto Markdown, annulla e ripeti.
+- Preferenze salvate, salvataggio automatico e recupero di una bozza senza nome.
+- Suoni opzionali se è disponibile `pw-play`, `paplay` oppure `aplay`.
 
-1. Collaudare l'interfaccia GTK e migliorare apertura, salvataggio e recupero dei documenti.
-2. Aggiungere obiettivi di scrittura e barra di progresso; persistenza delle preferenze.
-3. Completare formattazione, sottolineato, rientri e note numerate.
-4. Aggiungere indice collassabile, spostamento delle sezioni e ricerca con risultati e sostituzione.
-5. Salvare appunti e note associati al documento, con modifica, conferma di eliminazione e reinserimento.
-6. Completare schermata iniziale con cartella e recenti, evidenziazione per tema e suoni.
-7. Rifinire accessibilità, distribuzione Linux e valutare macOS e Windows.
+**Il salvataggio automatico è attivo per impostazione predefinita:** modifica
+anche i documenti aperti dopo pochi secondi. Puoi disattivarlo nell'ingranaggio.
+Per le prime prove usa una copia dei tuoi documenti.
 
-Queste voci sono lavoro futuro, non funzioni già disponibili.
+Gli appunti sono condivisi tra i documenti e vengono conservati in
+`~/.config/tasto/appunti.json`; le preferenze in `~/.config/tasto/config.json`.
+La bozza senza nome è in `~/.local/share/tasto/recupero.md` (i percorsi seguono
+le directory XDG se personalizzate). I dati della precedente app Scrivi non
+vengono modificati o importati automaticamente.
 
-## Test
+## Sviluppo
 
-Dalla cartella del progetto:
+- `tasto/app.py`: base GTK importata da `scrivi3.py`, adattata al nome e ai percorsi Tasto.
+- `tasto/style.css`: stile estratto dal file originale; i segnaposto `@bg@`,
+  `@fg@`, ecc. sono sostituiti da Python in base al tema.
+- `tasto/document.py`: componente del precedente prototipo, conservato ma non
+  utilizzato dall'interfaccia importata.
+- `tests/test_document.py`: test del componente precedente, non test della nuova interfaccia.
+- `tests/test_imported_source.py`: controlli di integrazione sul codice importato e sul CSS.
+
+Da completare rispetto al progetto originale: sette temi, cinque livelli di
+titoli, menu di formattazione completo, sostituzione, spostamento delle sezioni,
+note a margine e modifica degli appunti. Attualmente eliminare un appunto non
+richiede conferma.
 
 ```sh
 python3 -m unittest discover -s tests -v
 ```
 
-I test verificano la gestione dei documenti senza dipendere da GTK.
-La cartella `tasto` contiene il programma: `document.py` gestisce il testo e i file,
-`app.py` costruisce la finestra. `tests` contiene le verifiche automatiche.
+Nell'ambiente cloud mancano GtkSourceView 4 e un display virtuale: l'avvio,
+il rendering e le interazioni di questa versione devono ancora essere
+verificati su Linux. I test automatici senza display non ne sostituiscono il collaudo.
+
+Verifica aggiuntiva eseguita: il parser CSS di GTK 3 accetta tutte le nove
+combinazioni dei tre temi e dei tre font. Questo non verifica il rendering.
