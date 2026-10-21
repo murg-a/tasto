@@ -101,13 +101,25 @@
 #rightpane stackswitcher button:checked { background-color: @sel@; border-color: @line@; }
 #rightpane stackswitcher button:checked label { color: @fg@; }
 
+/* Accoglienza editoriale: un solo sfondo, gerarchia tipografica e spazio. */
 #splash scrolledwindow, #splash viewport { background-color: @bg@; }
 #splash #home-library label { font-size: @ui@pt; color: @dim@; }
+#splash #home-library label.home-heading { font-weight: bold; }
+#splash #home-library label.home-count { color: @dim@; }
+#splash #home-library label.home-empty { padding-top: 8px; padding-bottom: 8px; }
+#splash .home-rule { min-height: 1px; background-color: @line@; }
 #splash #home-library button {
     background-image: none; background-color: transparent; box-shadow: none;
-    border: 1px solid @line@; border-radius: 6px; padding: 6px 10px;
+    border: 1px solid @line@; border-radius: 5px; padding: 6px 10px;
     font-family: @font@; font-size: @ui@pt; color: @fg@;
 }
 #splash #home-library button label { color: @fg@; }
-#splash #home-library button.home-file { border-color: transparent; }
-#splash #home-library button:hover, #splash #home-library button:focus { background-color: @sel@; }
+#splash #home-library button.home-file {
+    border-color: transparent; padding: 8px; min-height: 18px;
+}
+#splash #home-library button.home-more {
+    border-color: transparent; padding: 6px 8px; min-width: 24px;
+}
+#splash #home-library button:hover { background-color: @sel@; }
+#splash #home-library button:focus { background-color: @sel@; border-color: @dim@; }
+#splash label.home-shortcuts { font-size: @ui@pt; color: @dim@; }

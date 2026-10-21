@@ -71,6 +71,17 @@ un altro file o un nuovo documento.
 - **Tutti i file:** sette file `.md` / `.markdown` in ordine alfabetico; **+**
   mostra altri sette file alla volta. I nomi sono cliccabili.
 
+La composizione mantiene un unico sfondo e porta l'invito alla scrittura sopra
+la biblioteca. Recenti e file sono disposti su due colonne allineate, con
+intestazioni discrete, conteggio degli elementi e una sola linea di separazione.
+Su finestre strette le sezioni si dispongono in verticale. I comandi da tastiera
+restano visibili in fondo e il focus dei pulsanti è riconoscibile.
+
+I criteri di leggibilità, larghezza contenuta e contrasto si ispirano alle
+indicazioni W3C su [presentazione del testo](https://github.com/w3c/wcag/blob/main/understanding/20/visual-presentation.html)
+e [contrasto](https://github.com/w3c/wcag/blob/main/understanding/20/contrast-minimum.html),
+adattate all'interfaccia desktop e all'estetica tipografica di Tasto.
+
 Cartella e cronologia vengono ricordate nelle preferenze. Una cartella vuota
 o non più accessibile mostra un messaggio e permette di sceglierne un'altra.
 
@@ -227,7 +238,8 @@ della scheda destra al riavvio. Verifica inoltre rinumerazione per posizione,
 clic nativo sui richiami, cancellazione collegata e recupero con annulla/ripeti,
 incluso il caso di una nota con più richiami. Per la schermata iniziale controlla
 cartella e cronologia persistenti, filtri per cartella, paginazione, apertura
-da tastiera, ritorno al documento in corso e gestione della cartella assente. Non eseguirlo sul display in uso: genera eventi
+da tastiera, ritorno al documento in corso, gestione della cartella assente e
+passaggio fra colonne affiancate e sezioni verticali ridimensionando la finestra. Non eseguirlo sul display in uso: genera eventi
 di tastiera. Nel cloud è stato eseguito con GTK 3, GtkSourceView 4 e Xvfb.
 
 Il parser CSS di GTK 3 è stato verificato anche sulle 21 combinazioni di temi e font.

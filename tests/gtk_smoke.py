@@ -214,6 +214,14 @@ win.remember_document(folder/'file-04.md');win.remember_document(other/'esterno.
 before=win.get_text();win.show_settings();pump();win.splash_btn.clicked();pump()
 assert win.splash.get_visible() and win.get_text()==before and win.path is None
 assert win.home_folder.get_text()==str(folder)
+assert win.home_columns.get_orientation()==Gtk.Orientation.HORIZONTAL
+headings=[section.get_children()[0] for section in win.home_columns.get_children()]
+assert headings[0].get_allocation().y==headings[1].get_allocation().y
+assert headings[0].get_allocated_height()==headings[1].get_allocated_height()
+win.resize(620,760);pump()
+assert win.home_columns.get_orientation()==Gtk.Orientation.VERTICAL
+win.resize(1280,800);pump()
+assert win.home_columns.get_orientation()==Gtk.Orientation.HORIZONTAL
 assert [button.get_label() for button in win.home_files.get_children()]==[f'file-{i:02}.md' for i in range(7)]+['+']
 assert [button.get_label() for button in win.home_recent.get_children()]==['file-04.md']
 win.home_files.get_children()[-1].clicked();pump()
@@ -244,7 +252,7 @@ assert saved['folder']==str(other) and saved['recent_files'][0]==str(folder/'fil
 win.set_home_folder(str(folder/'cartella-inesistente'));pump()
 assert win.home_status.get_visible() and 'Cartella non disponibile' in win.home_status.get_text()
 win.set_home_folder(str(folder));win.dismiss_splash();pump()
-print('PASS: schermata iniziale da impostazioni, cartella persistita, recenti filtrati, 7 file e +, apertura con Invio, documento protetto e cartella assente.')
+print('PASS: schermata iniziale da impostazioni, cartella persistita, recenti filtrati, 7 file e +, layout adattabile, apertura con Invio, documento protetto e cartella assente.')
 second.buf.set_modified(False);second.destroy();pump(.1)
 print('PASS: la scheda selezionata è ricordata al riavvio.')
 
