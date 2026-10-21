@@ -39,7 +39,7 @@ chiudi prima Tasto, entra nella cartella del progetto ed esegui `git pull`.
 ## Funzioni presenti nella base importata
 
 - Schermata iniziale «premi un TASTO», colonna centrata e barre laterali richiudibili.
-- Tre temi, tre famiglie di font, dimensione e larghezza regolabili.
+- Sette temi, tre famiglie di font, dimensione e larghezza regolabili.
 - Evidenziazione Markdown, indice collassabile (tre livelli), ricerca con anteprime.
 - Conteggi e obiettivo di parole con barra di avanzamento.
 - Appunti persistenti: incolla, copia dalla selezione e inserisci nel documento.
@@ -57,6 +57,22 @@ La bozza senza nome è in `~/.local/share/tasto/recupero.md` (i percorsi seguono
 le directory XDG se personalizzate). I dati della precedente app Scrivi non
 vengono modificati o importati automaticamente.
 
+## Temi
+
+Nella barra inferiore, ogni riquadro con una `t` mostra lo sfondo e il colore
+del testo del tema; passando con il mouse compare il nome:
+
+- **Chiaro**: nero su bianco.
+- **Ghiaccio**: blu ardesia su bianco freddo.
+- **Seppia**: marrone scuro su beige.
+- **Sole**: marrone su crema dorato.
+- **Scuro**: bianco su antracite.
+- **Dracula**: fondo viola scuro e accenti viola, rosa e ciano.
+- **Terminale**: verde su fondo quasi nero.
+
+Il tema viene ricordato alla chiusura. Attiva il pulsante **✱** per vedere
+anche i colori Markdown specifici del tema.
+
 ## Sviluppo
 
 - `tasto/app.py`: base GTK importata da `scrivi3.py`, adattata al nome e ai percorsi Tasto.
@@ -67,7 +83,7 @@ vengono modificati o importati automaticamente.
 - `tests/test_document.py`: test del componente precedente, non test della nuova interfaccia.
 - `tests/test_imported_source.py`: controlli di integrazione sul codice importato e sul CSS.
 
-Da completare rispetto al progetto originale: sette temi, cinque livelli di
+Da completare rispetto al progetto originale: cinque livelli di
 titoli, menu di formattazione completo, sostituzione, spostamento delle sezioni,
 note a margine e modifica degli appunti. Attualmente eliminare un appunto non
 richiede conferma.
@@ -80,5 +96,5 @@ Nell'ambiente cloud mancano GtkSourceView 4 e un display virtuale: l'avvio,
 il rendering e le interazioni di questa versione devono ancora essere
 verificati su Linux. I test automatici senza display non ne sostituiscono il collaudo.
 
-Verifica aggiuntiva eseguita: il parser CSS di GTK 3 accetta tutte le nove
-combinazioni dei tre temi e dei tre font. Questo non verifica il rendering.
+Verifica aggiuntiva eseguita: il parser CSS di GTK 3 accetta tutte le 21
+combinazioni dei sette temi e dei tre font. Questo non verifica il rendering.

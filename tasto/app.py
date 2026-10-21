@@ -67,14 +67,22 @@ def theme(label, fg, bg, dim, sel, line, find,
 
 
 THEMES = {
-    "chiaro": theme("Chiaro", "#111111", "#f6f6f6", "#666666", "#dbe3f0", "#dcdcdc", "#ffe58f",
+    "chiaro": theme("Chiaro", "#111111", "#ffffff", "#666666", "#dbe3f0", "#dcdcdc", "#ffe58f",
                     "#0550ae", "#953800", "#8250df", "#1a7f37", "#57606a", "#cf222e", "#0969da"),
     "seppia": theme("Seppia", "#3a2412", "#f0e4c8", "#5f4c30", "#dccaa0", "#d7c8a2", "#f2c94c",
                     "#a2381b", "#7a4a00", "#6b3f8a", "#2f6b3a", "#5f4c30", "#a2381b", "#1f5f8b"),
     "antracite": theme("Scuro", "#f0f0f0", "#2b2f33", "#9aa1a8", "#4b535b", "#3d4348", "#5a4a14",
                        "#79c0ff", "#ffa657", "#d2a8ff", "#7ee787", "#9aa1a8", "#ff7b72", "#58a6ff"),
+    "ghiaccio": theme("Ghiaccio", "#24384b", "#edf3f8", "#526779", "#cedeea", "#c9d7e3", "#f5df92",
+                      "#185b9d", "#934117", "#7147a2", "#226745", "#526779", "#a33349", "#145f85"),
+    "sole": theme("Sole", "#55351c", "#fff0ce", "#7b5b36", "#efd29b", "#dfc594", "#efd06b",
+                  "#95451d", "#805200", "#86418c", "#396333", "#7b5b36", "#a33428", "#266777"),
+    "dracula": theme("Dracula", "#f8f8f2", "#282a36", "#a6accd", "#44475a", "#44475a", "#66552c",
+                     "#bd93f9", "#ffb86c", "#ff79c6", "#50fa7b", "#a6accd", "#ff5555", "#8be9fd"),
+    "terminale": theme("Terminale", "#a4e5a0", "#101a13", "#7cab7d", "#294532", "#304a37", "#4d5427",
+                       "#c1f5ad", "#e0d68a", "#86d8af", "#a4e5a0", "#7cab7d", "#dfb477", "#8bcac4"),
 }
-THEME_ORDER = ["chiaro", "seppia", "antracite"]
+THEME_ORDER = ["chiaro", "ghiaccio", "seppia", "sole", "antracite", "dracula", "terminale"]
 
 # (nome mostrato, famiglie in ordine di preferenza, fattore di grandezza).
 # IBM Plex è una famiglia progettata per stare insieme, con grassetto e corsivo veri
@@ -113,8 +121,9 @@ CSS = Path(__file__).with_name("style.css").read_text(encoding="utf-8")
 
 
 def extra_css():
-    """Colori dei tre riquadri tema nella barra inferiore."""
-    return "\n".join(f"#bar button.sq.sq-{key} {{ background-color: {THEMES[key]['bg']}; }}"
+    """Ogni campione mostra sfondo e carattere del proprio tema."""
+    return "\n".join(f"#bar button.sq.sq-{key} {{ background-color: {THEMES[key]['bg']}; }} "
+                     f"#bar button.sq.sq-{key} label {{ color: {THEMES[key]['fg']}; }}"
                      for key in THEME_ORDER)
 
 
@@ -839,7 +848,7 @@ class Tasto(Gtk.Window):
 
         self.theme_btns = {}
         for name in THEME_ORDER:
-            btn = self.button("", THEMES[name]["label"], lambda n=name: self.set_theme(n))
+            btn = self.button("t", "Tema " + THEMES[name]["label"], lambda n=name: self.set_theme(n))
             ctx = btn.get_style_context()
             ctx.add_class("sq")
             ctx.add_class("sq-" + name)
