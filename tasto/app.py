@@ -31,7 +31,7 @@ verranno usati i tuoi.
 import bisect
 from .paragraph_shift import ParagraphShift
 from .formatting import format_edit, list_newline_edit
-from .preview import parse as parse_preview
+from .preview import parse as parse_preview, active_lines
 from .library import markdown_files, recent_in_folder, remember_file
 from .footnotes import notes as document_notes, add_note as add_footnote, update_note, reference_offset, references, synchronize_notes, reconcile_notes
 from pathlib import Path
@@ -607,6 +607,10 @@ class Tasto(Gtk.Window, ParagraphShift):
         }
         self.md_tags = self.t_h + [self.t_mark] + list(self.tags.values())
         self.t_hidden = b.create_tag("preview-hidden", invisible=True)
+        self._preview_lines = []
+        self._preview_active = set()
+        self._preview_idle = 0
+        b.connect("mark-set", self.preview_mark_set)
         self.t_find = b.create_tag("find")   # creato per ultimo: ha la precedenza
         b.connect("begin-user-action", self.begin_note_action)
         b.connect("delete-range", self.record_note_deletion)
@@ -618,8 +622,6 @@ class Tasto(Gtk.Window, ParagraphShift):
         b.connect("modified-changed", lambda *_: self.update_title())
 
         self.build_bottom_bar()
-        self.color_btn.set_no_show_all(True)
-        self.color_btn.hide()
         self.build_splash()
         self.build_note_editor()
 
@@ -1627,14 +1629,72 @@ class Tasto(Gtk.Window, ParagraphShift):
                                self.buf.get_iter_at_line_offset(line, a),
                                self.buf.get_iter_at_line_offset(line, b))
 
+    def preview_literal_line(self, number):
+        group = next((g for g in self.shift_groups if g['id'] == self._shift_open), None)
+        if group is None:
+            return False
+        a = self.buf.get_iter_at_mark(group['start']).get_line()
+        b = self.buf.get_iter_at_mark(group['end']).get_line()
+        return a <= number <= b
+
+    def preview_mark_set(self, _buffer, _iterator, mark):
+        if mark.get_name() in ("insert", "selection_bound") and not self._preview_idle:
+            self._preview_idle = GLib.idle_add(self.update_preview_selection)
+
+    def preview_selection(self):
+        bounds = self.buf.get_selection_bounds()
+        if bounds:
+            start, end = bounds
+            last = end.get_line()
+            if end.starts_line() and end.get_offset() > start.get_offset():
+                last -= 1
+            active = active_lines(self._preview_lines, start.get_line(), last)
+            cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_line()
+            return active | active_lines(self._preview_lines, cursor, cursor)
+        line = self.buf.get_iter_at_mark(self.buf.get_insert()).get_line()
+        return active_lines(self._preview_lines, line, line)
+
+    def update_preview_selection(self):
+        self._preview_idle = 0
+        # Le decorazioni precedenti hanno offset obsoleti dopo una modifica.
+        if self._timer:
+            return False
+        active = self.preview_selection()
+        for n in active ^ self._preview_active:
+            if n >= len(self._preview_lines):
+                continue
+            line = self._preview_lines[n]
+            start = self.buf.get_iter_at_line(n)
+            end = start.copy()
+            end.forward_to_line_end()
+            self.buf.remove_tag(self.t_hidden, start, end)
+            if n not in active and not self.preview_literal_line(n):
+                for a, b in line.hidden:
+                    self.tag_range(self.t_hidden, n, a, b)
+        self._preview_active = active
+        return False
+
     def style_markdown(self, text):
         start, end = self.buf.get_bounds()
         for tag in self.md_tags + [self.t_hidden]:
             self.buf.remove_tag(tag, start, end)
-        lines = parse_preview(text)
-        # Keep the outline, but apply no visual Markdown formatting or hidden tags.
-        return [line.heading for line in lines
-                if line.heading and line.heading[0] <= 3]
+        self._preview_lines = parse_preview(text)
+        self._preview_active = self.preview_selection()
+        heads = []
+        for n, line in enumerate(self._preview_lines):
+            if line.heading:
+                # L'indice esistente mostra i primi tre livelli.
+                if line.heading[0] <= 3:
+                    heads.append(line.heading)
+            if self.preview_literal_line(n):
+                continue
+            for name, a, b in line.spans:
+                tag = self.t_h[int(name[1:]) - 1] if name.startswith('h') and name[1:].isdigit() else self.tags[name]
+                self.tag_range(tag, n, a, b)
+            if n not in self._preview_active:
+                for a, b in line.hidden:
+                    self.tag_range(self.t_hidden, n, a, b)
+        return heads
 
     def update_counts(self, text):
         self._chars = len(text) - text.count("\n")  # spazi inclusi, a capo esclusi

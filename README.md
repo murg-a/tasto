@@ -40,7 +40,7 @@ chiudi prima Tasto, entra nella cartella del progetto ed esegui `git pull`.
 
 - Schermata iniziale «premi un TASTO», colonna centrata e barre laterali richiudibili.
 - Sette temi, tre famiglie di font, dimensione e larghezza regolabili.
-- Markdown letterale, varianti orizzontali dei paragrafi, indice collassabile (tre livelli), ricerca con anteprime.
+- Anteprima Markdown, varianti orizzontali dei paragrafi, indice collassabile (tre livelli), ricerca con anteprime.
 - Conteggi e obiettivo di parole con barra di avanzamento.
 - Appunti persistenti: incolla, copia dalla selezione, modifica e inserisci nel documento.
 - Menu di elementi ASCII, aiuto Markdown, annulla e ripeti.
@@ -57,13 +57,17 @@ La bozza senza nome è in `~/.local/share/tasto/recupero.md` (i percorsi seguono
 le directory XDG se personalizzate). I dati della precedente app Scrivi non
 vengono modificati o importati automaticamente.
 
-## Markdown letterale
+## Markdown nel testo principale e nelle varianti
 
-Il testo mostra sempre i marcatori Markdown (`**`, `_`, `#`, backtick, link e
-richiami delle note). Titoli, grassetto, corsivo e codice non ricevono una
-formattazione visiva: il documento rimane testo sorgente anche fuori dalla riga
-attiva. I comandi di formattazione continuano a inserire i marcatori e l'indice
-riconosce i titoli. Anche le varianti a sinistra mostrano la sorgente letterale.
+Il testo principale mostra l'anteprima Markdown: titoli, grassetto, corsivo,
+barrato, codice e link sono formattati; i marcatori vengono mostrati nella riga
+attiva e nelle selezioni per permettere la modifica. Il file conserva sempre la
+sorgente Markdown. L'indice continua a riconoscere i titoli.
+
+Nel confronto tra varianti, invece, il paragrafo in modifica e la versione
+affiancata mostrano la sorgente letterale, compresi `**`, `_` e gli altri
+marcatori. Il resto del documento mantiene la propria anteprima. Richiudendo il
+confronto, anche la versione scelta torna all'anteprima normale.
 
 ## Rientri e continuazione degli elenchi
 
@@ -128,8 +132,8 @@ il menu si chiude e il riquadro si aggiorna:
 - **Dracula**: fondo viola scuro e accenti viola, rosa e ciano.
 - **Terminale**: verde su fondo quasi nero.
 
-Il tema viene ricordato alla chiusura. Il testo Markdown mantiene il colore
-uniforme del tema, con tutti i marcatori visibili.
+Il tema viene ricordato alla chiusura. Il pulsante **✱** abilita i colori
+Markdown specifici del tema nel testo principale.
 
 ## Menu + e formattazione
 
@@ -186,9 +190,14 @@ della vista e l'originale compare a sinistra, mentre a destra scrivi la nuova
 versione nel flusso del documento. Per lasciare spazio, le barre laterali vengono
 nascoste temporaneamente. Il testo precedente e quello successivo restano comuni.
 
-**‹ / ›** selezionano la variante precedente o successiva; il contatore mostra
-quella attiva. **+** aggiunge un'altra alternativa. Quella a sinistra è una
-copia di lettura della versione precedente: usa **‹** per attivarla e modificarla.
+**‹ / ›** selezionano la variante precedente o successiva senza richiudere il
+confronto o ricentrare la pagina; il contatore mostra quella attiva. **+** aggiunge un'altra alternativa. A sinistra compare una
+copia di lettura della versione precedente, oppure della successiva quando è
+selezionata la prima. Usa **‹ / ›** per attivarla e modificarla.
+**Elimina** rimuove la versione selezionata e attiva una delle rimanenti.
+L’unica versione rimasta è protetta. **Ctrl+Z / Ctrl+Y** annullano e ripetono
+anche l’eliminazione di versioni identiche o vuote.
+
 **Esc** o **×** richiudono l'affiancamento conservando la variante scelta e
 ripristinano le barre laterali. Muoversi o cliccare su altri paragrafi mantiene
 aperto il confronto, senza ricentrare il documento o modificare la posizione
@@ -315,4 +324,5 @@ xvfb-run -a /usr/bin/python3 tests/gtk_shift.py
 
 Verifica creazione, navigazione, affiancamento centrato, Markdown letterale,
 annulla/ripeti, ancoraggi, isolamento per documento, riapertura, recupero,
-conflitti esterni e gestione degli errori di scrittura.
+conflitti esterni, eliminazione e recupero di versioni, Markdown nel flusso
+principale, limiti dello scorrimento e gestione degli errori di scrittura.

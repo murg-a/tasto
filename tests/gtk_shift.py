@@ -59,7 +59,8 @@ click(w.shift_next)
 assert w.shift_groups[0]['active']==1 and w.shift_preview.get_visible()
 rect=w.view.get_iter_location(w.buf.get_start_iter())
 _,cy=w.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET,rect.x,rect.y)
-assert abs(cy-w.view.get_allocated_height()/2)<70, (cy,w.view.get_allocated_height())
+assert 0 <= cy < w.view.get_allocated_height()
+assert w.view.get_top_margin()==48
 click(w.shift_add)
 assert w.shift_groups[0]['active']==2 and len(w.shift_groups[0]['versions'])==3
 w.buf.begin_user_action();w.buf.insert_at_cursor('Terza variante _letterale_.');w.buf.end_user_action();pump()
@@ -97,6 +98,43 @@ assert w.discard_shift()
 w.set_content(p.read_text(),str(p));pump();assert w.get_text()==saved
 assert w.shift_groups[0]['active']==2
 print('PASS multiple groups, moving anchors, document isolation and discard',flush=True)
+
+# Delete selected versions, including identical and empty variants, with native undo.
+remove=Path(root.name)/'remove.md';remove.write_text('# Titolo\n\nOriginale **uno**.\n\nFinale.')
+w.set_content(remove.read_text(),str(remove));pump()
+body=w.get_text().index('Originale')
+w.buf.place_cursor(w.buf.get_iter_at_offset(body));pump()
+assert w.add_shift();pump()
+w.buf.begin_user_action();w.buf.insert_at_cursor('Seconda **versione**.');w.buf.end_user_action();pump()
+assert w.shift_delete.get_visible()
+comparison=w._shift_open
+rect=w.view.get_iter_location(w.buf.get_iter_at_offset(body))
+before_y=w.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET,rect.x,rect.y)[1]
+assert w.select_shift(-1);pump()
+assert w._shift_open==comparison
+now=w.view.get_iter_location(w.buf.get_iter_at_offset(body))
+assert abs(w.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET,now.x,now.y)[1]-before_y)<3
+assert w.view.get_top_margin()==48
+w.editor_sw.get_vadjustment().set_value(0);pump()
+heading=w.view.get_iter_location(w.buf.get_start_iter())
+assert w.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET,heading.x,heading.y)[1]<120
+assert w.buf.get_start_iter().has_tag(w.t_h[0])
+assert w.select_shift(1);pump()
+click(w.shift_delete)
+assert len(w.shift_groups[0]['versions'])==1 and 'Originale **uno**.' in w.get_text()
+assert not w.delete_shift()
+w.buf.undo();pump();assert len(w.shift_groups[0]['versions'])==2 and 'Seconda **versione**.' in w.get_text()
+w.buf.redo();pump();assert len(w.shift_groups[0]['versions'])==1
+assert w.add_shift();pump()
+# Two empty versions require undo even though deleting one changes no Markdown.
+assert w.add_shift();pump()
+text=w.get_text();count=len(w.shift_groups[0]['versions'])
+assert w.delete_shift();pump();assert w.get_text()==text and len(w.shift_groups[0]['versions'])==count-1
+w.buf.undo();pump();assert w.get_text()==text and len(w.shift_groups[0]['versions'])==count
+w.buf.redo();pump();assert len(w.shift_groups[0]['versions'])==count-1
+assert w.file_save()
+w.set_content(remove.read_text(),str(remove));pump();assert len(w.shift_groups[0]['versions'])==count-1
+print('PASS Markdown in main flow, no title overscroll, stable option switches and undoable version deletion',flush=True)
 
 # Regression: native typing immediately after + in a long document, then navigation.
 x11.XSetInputFocus.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.c_int,ctypes.c_ulong]

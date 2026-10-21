@@ -210,8 +210,9 @@ class ParagraphShift:
         self.shift_prev = self.button('‹', 'Variante precedente', lambda: self.select_shift(-1))
         self.shift_next = self.button('›', 'Variante successiva', lambda: self.select_shift(1))
         self.shift_count = Gtk.Label()
+        self.shift_delete = self.button('Elimina', 'Elimina questa versione (Ctrl+Z per annullare)', self.delete_shift)
         self.shift_add = self.button('+', 'Scrivi una variante di questo paragrafo', self.add_shift)
-        for widget in (self.shift_grip, self.shift_prev, self.shift_count, self.shift_next, self.shift_add):
+        for widget in (self.shift_grip, self.shift_prev, self.shift_count, self.shift_next, self.shift_add, self.shift_delete):
             self.shift_tools.pack_start(widget, False, False, 0)
         self.shift_preview = Gtk.TextView()
         self.shift_preview.set_name('shift-preview')
@@ -304,7 +305,7 @@ class ParagraphShift:
         else:
             group['versions'][group['active']] = self.get_text()[a:b]
         versions = list(group['versions']) + ['']
-        return self.shift_transition(group, len(versions)-1, versions, before)
+        return self.shift_transition(group, len(versions)-1, versions, before, center=True)
 
     def select_shift(self, direction):
         self.finish_note_action()
@@ -319,15 +320,34 @@ class ParagraphShift:
         versions[group['active']] = self.get_text()[a:b]
         return self.shift_transition(group, target, versions, self.shift_snapshot())
 
-    def shift_transition(self, group, active, versions, before):
+    def delete_shift(self):
+        self.finish_note_action()
+        context = self.shift_context()
+        if context is None or context[0] is None or self._editing_note is not None:
+            return False
+        group, _a, _b = context
+        if len(group['versions']) <= 1:
+            return False
+        before = self.shift_snapshot()
+        current = next(r for r in before if r['id'] == group['id'])
+        versions = list(current['versions'])
+        notes = copy.deepcopy(current['notes'])
+        del versions[group['active']]
+        del notes[group['active']]
+        return self.shift_transition(group, min(group['active'],len(versions)-1),
+                                     versions, before, version_notes=notes, force_history=True)
+
+    def shift_transition(self, group, active, versions, before, center=False, version_notes=None, force_history=False):
         if self._shift_corrupt:
             return False
         a = self.buf.get_iter_at_mark(group['start']).get_offset()
         b = self.buf.get_iter_at_mark(group['end']).get_offset()
         old = self.get_text()
+        anchor = self.view.get_iter_location(self.buf.get_iter_at_offset(a))
+        _x, previous_y = self.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, anchor.x, anchor.y)
         records = self.shift_snapshot()
         record = next(r for r in records if r['id'] == group['id'])
-        version_notes = record['notes']
+        version_notes = copy.deepcopy(record['notes']) if version_notes is None else version_notes
         while len(version_notes) < len(versions):
             version_notes.append({})
         content = versions[active]
@@ -370,24 +390,34 @@ class ParagraphShift:
             self._viewport_restore = 0
         self.replace_document(text, a, preserve_viewport=False)
         self.shift_install(records)
+        if old == text and force_history:
+            # Give a metadata-only deletion one native, reversible undo action.
+            self._mutating_notes = True
+            self.buf.begin_user_action()
+            end = self.buf.get_end_iter().get_offset()
+            self.buf.insert(self.buf.get_end_iter(), '\u2060')
+            self.buf.delete(self.buf.get_iter_at_offset(end), self.buf.get_end_iter())
+            self.buf.end_user_action()
+            self._mutating_notes = False
         self._shift_busy = False
-        if old != text:
+        if old != text or force_history:
             self._shift_history.append((old, text, before, copy.deepcopy(records)))
         self.buf.set_modified(True)
         self._shift_redo.clear()
         selected = next(g for g in self.shift_groups if g['id'] == group['id'])
-        self._shift_open = selected['id'] if active > 0 else None
-        if active > 0:
+        self._shift_open = selected['id'] if len(versions)>1 else None
+        if self._shift_open:
             self.expand_shift()
         else:
             self.close_shift()
         self.view.grab_focus()
+        self.refresh()
         self.queue_shift()
         if self._shift_center_source:
             GLib.source_remove(self._shift_center_source)
-        # GtkTextView validates its new top margin on the next rendering frames.
-        # Center after those allocations, rather than reading the old rectangle.
-        self._shift_center_source = GLib.timeout_add(50, self.center_shift, selected['id'], priority=GLib.PRIORITY_LOW)
+        # Wait for width, Markdown tags and paragraph height to finish allocating.
+        # Creating a version centers it; selecting one preserves its screen position.
+        self._shift_center_source = GLib.timeout_add(50, self.center_shift, selected['id'], None if center else previous_y, priority=GLib.PRIORITY_LOW)
         return True
 
     def expand_shift(self):
@@ -395,11 +425,11 @@ class ParagraphShift:
             self._shift_sides = (self.left_pane.get_visible(), self.right_pane.get_visible())
         self.left_pane.hide()
         self.right_pane.hide()
-        self.view.set_top_margin(max(48, self.view.get_allocated_height()//2))
-        self.view.set_bottom_margin(max(120, self.view.get_allocated_height()//2))
+        self.view.set_top_margin(48)
+        self.view.set_bottom_margin(120)
         self.schedule_fit()
 
-    def center_shift(self, identity):
+    def center_shift(self, identity, target_y=None):
         self._shift_center_source = 0
         if self._shift_destroyed:
             return False
@@ -411,7 +441,8 @@ class ParagraphShift:
             adjustment = self.editor_sw.get_vadjustment()
             # Buffer coordinates exclude the TextView's top margin.
             _x, widget_y = self.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, rect.x, rect.y)
-            target = adjustment.get_value() + widget_y + rect.height/2 - self.view.get_allocated_height()/2
+            desired_y = self.view.get_allocated_height()/2 - rect.height/2 if target_y is None else target_y
+            target = adjustment.get_value() + widget_y - desired_y
             maximum = max(adjustment.get_lower(), adjustment.get_upper()-adjustment.get_page_size())
             adjustment.set_value(max(adjustment.get_lower(),min(maximum,target)))
         self.queue_shift()
@@ -438,6 +469,8 @@ class ParagraphShift:
             self.right_pane.set_visible(right)
             self._shift_sides = None
             self.schedule_fit()
+        if hasattr(self, "md_tags") and not self._shift_busy and not self._shift_destroyed:
+            self.schedule()
         self.queue_shift()
 
     def queue_shift(self):
@@ -477,7 +510,8 @@ class ParagraphShift:
                 self.shift_margin.set_property('right-margin', max(20, width-right_start-column))
                 self.buf.apply_tag(self.shift_margin, it, tag_end)
                 self.buf.apply_tag(self.shift_header, it, self.buf.get_iter_at_offset(min(a+1,len(text))))
-                previous = opened['versions'][opened['active']-1]
+                neighbor = opened['active']-1 if opened['active']>0 else 1
+                previous = opened['versions'][neighbor]
                 preview_buffer = self.shift_preview.get_buffer()
                 if preview_buffer.get_text(*preview_buffer.get_bounds(),True) != previous:
                     preview_buffer.set_text(previous)
@@ -522,15 +556,16 @@ class ParagraphShift:
         count = len(group['versions']) if group else 1
         self.shift_prev.set_sensitive(active>0)
         self.shift_next.set_sensitive(active+1<count)
+        self.shift_delete.set_sensitive(count>1)
         self.shift_count.set_text(f'{active+1} / {count}' if group else '')
         for child in self.shift_tools.get_children():
             child.show_all()
-        for child in (self.shift_prev,self.shift_next,self.shift_count):
-            child.set_visible(group is not None)
+        for child in (self.shift_prev,self.shift_next,self.shift_count,self.shift_delete):
+            child.set_visible(group is not None and count>1)
         self.shift_tools.show()
         tool_x = x if in_comparison else width-self.view.get_right_margin()+8
-        self.position_shift_widget(self.shift_tools,max(4,min(width-(210 if group else 65),tool_x)),
-                                   max(0,y-34 if in_comparison else y))
+        self.position_shift_widget(self.shift_tools,max(4,min(width-(280 if group and count>1 else 65),tool_x)),
+                                   max(0,y-34 if in_comparison or (group and count>1) else y))
         return False
 
     def shift_before_undo(self, redo):
