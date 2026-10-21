@@ -106,10 +106,16 @@ Le scorciatoie agiscono quando il cursore è nel corpo del documento.
 ### Note a margine
 
 Dal menu **+ → Aggiungi nota**, o con **Ctrl+Shift+N**, inserisci il richiamo
-numerato al cursore. Si apre una finestra per scrivere il contenuto: premi
-**Salva nota** per applicarlo al documento. La barra destra si apre e mostra
-l'elenco delle note; **Modifica** permette di correggerne il testo.
-Annullare la finestra appena creata lascia una nota vuota, rimovibile con Ctrl+Z.
+numerato al cursore. Si apre un editor sovrapposto al documento, centrato, senza bordi e distinto
+tramite un'ombra. Premi **Salva la nota** o **Ctrl+Invio** per applicare il
+contenuto, oppure **Annulla** / **Esc** per scartare le modifiche.
+La dimensione del pannello si adatta alla finestra (fino a circa 900 × 640 px).
+La barra destra mostra l'elenco delle note: cliccando sul testo di una nota
+torni al suo richiamo nel documento, che viene selezionato; **Modifica** apre
+l'editor sovrapposto. Se il richiamo è ripetuto si raggiunge il primo.
+Annullare una nota appena creata lascia una nota vuota, rimovibile con Ctrl+Z.
+Durante la modifica, il documento sottostante è bloccato; per chiudere Tasto
+occorre prima salvare o annullare la nota.
 
 Le note appartengono al documento, a differenza degli appunti condivisi:
 sono salvate come Markdown standard, con `[^1]` nel testo e `[^1]: contenuto`
@@ -120,7 +126,7 @@ Aprendo di nuovo il file, le note ricompaiono nella barra destra.
 
 ### Font dell'interfaccia
 
-La scelta **Mono / Serif / Sans** ora cambia anche barre, menu e finestra delle
+La scelta **Mono / Serif / Sans** cambia anche barre, menu ed editor delle
 note. Le tre famiglie IBM Plex sono coordinate e restano la scelta consigliata;
 in loro assenza si usano Noto, poi DejaVu e i font generici di sistema.
 La dimensione del testo resta regolabile; i controlli mantengono dimensioni

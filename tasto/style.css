@@ -75,9 +75,24 @@
                     border-bottom-width: 3px; border-radius: 8px; padding: 6px 18px; }
 
 /* La famiglia segue la scelta globale; le dimensioni UI restano compatte. */
-#main, #note-dialog { font-family: @font@; font-size: @ui@pt; }
+#main { font-family: @font@; font-size: @ui@pt; }
 #rightpane label { color: @fg@; font-family: @font@; font-size: @ui@pt; }
 #rightpane #panetitle { color: @dim@; }
-#note-dialog, #note-dialog textview, #note-dialog textview text {
-    background-color: @bg@; color: @fg@; font-family: @font@; font-size: @ui@pt;
+#rightpane button.note-link { border: none; padding: 8px; }
+#note-panel {
+    background-color: @bg@; color: @fg@; border: none; border-radius: 12px;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.35); padding: 28px;
+    font-family: @font@; font-size: @ui@pt;
 }
+#note-panel label { color: @dim@; }
+#note-panel textview, #note-panel textview text {
+    background-color: @bg@; color: @fg@; caret-color: @fg@;
+    font-family: @font@; font-size: @size@pt;
+}
+#note-panel textview text selection { background-color: @sel@; color: @fg@; }
+#note-panel button {
+    background-image: none; background-color: transparent; color: @fg@;
+    border: 1px solid @line@; border-radius: 6px; box-shadow: none;
+    padding: 8px 14px; font-family: @font@; font-size: @ui@pt;
+}
+#note-panel button:hover { background-color: @sel@; }

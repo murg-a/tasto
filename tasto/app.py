@@ -30,7 +30,7 @@ verranno usati i tuoi.
 
 import bisect
 from .formatting import format_edit
-from .footnotes import notes as document_notes, add_note as add_footnote, update_note
+from .footnotes import notes as document_notes, add_note as add_footnote, update_note, reference_offset
 from pathlib import Path
 import json
 import math
@@ -537,6 +537,7 @@ class Tasto(Gtk.Window):
         self._chars = 0
         self._words = 0
         self._footnote_key = None
+        self._editing_note = None
         self.set_default_size(*self.cfg["win"])
 
         self.provider = Gtk.CssProvider()
@@ -606,6 +607,7 @@ class Tasto(Gtk.Window):
 
         self.build_bottom_bar()
         self.build_splash()
+        self.build_note_editor()
 
         self.connect("key-press-event", self.on_key)
         self.connect("delete-event", self.on_delete)
@@ -1675,44 +1677,105 @@ class Tasto(Gtk.Window):
             label.set_line_wrap(True)
             label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
             label.set_max_width_chars(24)
-            self.footnote_list.pack_start(label, False, False, 0)
+            link = self.button("", "Torna al richiamo della nota " + note.number,
+                               lambda n=note.number: self.goto_margin_note(n))
+            link.get_style_context().add_class("note-link")
+            link.add(label)
+            self.footnote_list.pack_start(link, False, False, 0)
             self.footnote_list.pack_start(self.button("Modifica", "Modifica la nota " + note.number,
                                                     lambda n=note.number: self.edit_margin_note(n)), False, False, 0)
         self.footnote_list.show_all()
+
+    def goto_margin_note(self, number):
+        offset = reference_offset(self.get_text(), number)
+        if offset is None:
+            self.error("Questa nota non ha un richiamo nel corpo del documento.")
+            return
+        start = self.buf.get_iter_at_offset(offset)
+        end = self.buf.get_iter_at_offset(offset + len(f"[^{number}]"))
+        self.buf.select_range(start, end)
+        self.view.scroll_to_iter(start, 0.15, True, 0.5, 0.4)
+        self.view.grab_focus()
+
+    def build_note_editor(self):
+        # Un livello della stessa finestra, sopra corpo e barre: nessun nuovo toplevel.
+        self.note_layer = Gtk.EventBox()
+        self.note_layer.set_visible_window(False)
+        self.note_layer.set_no_show_all(True)
+        self.overlay.add_overlay(self.note_layer)
+        self.overlay.set_overlay_pass_through(self.note_layer, False)
+        self.note_panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
+        self.note_panel.set_name("note-panel")
+        self.note_panel.set_halign(Gtk.Align.CENTER)
+        self.note_panel.set_valign(Gtk.Align.CENTER)
+        self.note_layer.add(self.note_panel)
+        self.note_heading = Gtk.Label(xalign=0)
+        self.note_panel.pack_start(self.note_heading, False, False, 0)
+        self.note_editor = Gtk.TextView()
+        self.note_editor.set_name("note-editor")
+        self.note_editor.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        self.note_editor.set_top_margin(8)
+        self.note_editor.set_bottom_margin(16)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroll.add(self.note_editor)
+        self.note_panel.pack_start(scroll, True, True, 0)
+        self.note_status = Gtk.Label(label="Ctrl+Invio per salvare · Esc per annullare", xalign=0)
+        self.note_status.set_line_wrap(True)
+        self.note_panel.pack_start(self.note_status, False, False, 0)
+        actions = Gtk.Box(spacing=12)
+        actions.set_halign(Gtk.Align.END)
+        actions.pack_start(self.button("Annulla", "Annulla le modifiche alla nota (Esc)",
+                                       self.cancel_margin_note), False, False, 0)
+        actions.pack_start(self.button("Salva la nota", "Salva la nota (Ctrl+Invio)",
+                                       self.save_margin_note), False, False, 0)
+        self.note_panel.pack_start(actions, False, False, 0)
+        self.note_panel.show_all()
+        self.overlay.connect("size-allocate", self.resize_note_editor)
+
+    def resize_note_editor(self, _widget=None, allocation=None):
+        if allocation is None:
+            allocation = self.overlay.get_allocation()
+        size = (max(1, min(900, allocation.width - 96)),
+                max(1, min(640, allocation.height - 112)))
+        if self.note_panel.get_size_request() != size:
+            self.note_panel.set_size_request(*size)
 
     def edit_margin_note(self, number):
         matches = [note for note in document_notes(self.get_text()) if note.number == number]
         if len(matches) != 1:
             self.error("Numero di nota assente o duplicato: correggi le definizioni Markdown.")
             return
-        dialog = Gtk.Dialog(title="Nota " + number, transient_for=self, modal=True)
-        dialog.set_name("note-dialog")
-        dialog.set_default_size(440, 300)
-        dialog.add_button("Annulla", Gtk.ResponseType.CANCEL)
-        dialog.add_button("Salva nota", Gtk.ResponseType.ACCEPT)
-        editor = Gtk.TextView()
-        editor.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
-        editor.set_left_margin(16)
-        editor.set_right_margin(16)
-        editor.set_top_margin(16)
-        editor.get_buffer().set_text(matches[0].content)
-        scroll = Gtk.ScrolledWindow()
-        scroll.add(editor)
-        dialog.get_content_area().pack_start(scroll, True, True, 0)
-        dialog.show_all()
-        editor.grab_focus()
-        response = dialog.run()
-        if response == Gtk.ResponseType.ACCEPT:
-            buf = editor.get_buffer()
-            content = buf.get_text(*buf.get_bounds(), True)
-            cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
-            try:
-                text = update_note(self.get_text(), number, content)
-                self.replace_document(text, cursor)
-                self.refresh_margin_notes(text)
-            except ValueError as error:
-                self.error(str(error))
-        dialog.destroy()
+        self.close_menu()
+        self._editing_note = number
+        self._note_cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
+        self.note_heading.set_text("Nota " + number)
+        self.note_editor.get_buffer().set_text(matches[0].content)
+        self.note_editor.get_buffer().set_modified(False)
+        self.note_status.set_text("Ctrl+Invio per salvare · Esc per annullare")
+        self.resize_note_editor()
+        self.root.set_sensitive(False)
+        self.note_layer.show()
+        self.note_editor.grab_focus()
+
+    def save_margin_note(self):
+        if self._editing_note is None:
+            return
+        buf = self.note_editor.get_buffer()
+        content = buf.get_text(*buf.get_bounds(), True)
+        try:
+            text = update_note(self.get_text(), self._editing_note, content)
+            self.replace_document(text, self._note_cursor)
+            self.refresh_margin_notes(text)
+        except ValueError as error:
+            self.note_status.set_text(str(error))
+            return
+        self.cancel_margin_note()
+
+    def cancel_margin_note(self):
+        self.note_layer.hide()
+        self._editing_note = None
+        self.root.set_sensitive(True)
         self.view.grab_focus()
 
     # --- Tastiera e rotella --------------------------------------------------------
@@ -1735,6 +1798,16 @@ class Tasto(Gtk.Window):
         ctrl = bool(state & Gdk.ModifierType.CONTROL_MASK)
         shift = bool(state & Gdk.ModifierType.SHIFT_MASK)
         key = e.keyval
+        if self._editing_note is not None:
+            if ctrl and key in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+                self.save_margin_note()
+                return True
+            if key == Gdk.KEY_Escape:
+                self.cancel_margin_note()
+                return True
+            # Il resto della tastiera resta nell'editor della nota; niente comandi
+            # di apertura, cambio documento o formattazione sul corpo sottostante.
+            return False
         if self.splash.get_visible():           # il primo tasto chiude la schermata iniziale
             if (Gdk.keyval_name(key) or "").startswith(MODIFIER_KEYS):
                 return False
@@ -1978,6 +2051,10 @@ class Tasto(Gtk.Window):
         return True
 
     def on_delete(self, *_):
+        if self._editing_note is not None:
+            self.note_status.set_text("Salva o annulla la nota prima di chiudere Tasto.")
+            self.note_editor.grab_focus()
+            return True
         if self.cfg["autosave"]:
             self.flush_autosave()           # salva (o conserva la bozza) senza chiedere
             if self.path and self.buf.get_modified() and not self.confirm():

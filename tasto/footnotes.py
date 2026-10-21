@@ -64,3 +64,31 @@ def update_note(text, number, content):
         raise ValueError('La nota è assente o il numero è duplicato nel documento.')
     note = found[0]
     return text[:note.start] + definition(note.number, content) + text[note.end:]
+
+
+def reference_offset(text, number):
+    """Primo richiamo nel corpo, escludendo definizioni, codice e testo escapato."""
+    definitions = notes(text)
+    pattern = re.compile(re.escape(f'[^{number}]'))
+    fence = None
+    offset = 0
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r'^ {0,3}(`{3,}|~{3,})', line)
+        if marker:
+            run = marker[1]
+            if fence is None:
+                fence = run
+            elif run[0] == fence[0] and len(run) >= len(fence):
+                fence = None
+            offset += len(line)
+            continue
+        if fence is None:
+            code = [m.span() for m in re.finditer(r'(`+).*?\1', line)]
+            for match in pattern.finditer(line):
+                position = offset + match.start()
+                escaped = len(line[:match.start()]) - len(line[:match.start()].rstrip('\\'))
+                if (not escaped % 2 and not any(a <= match.start() < b for a, b in code)
+                        and not any(note.start <= position < note.end for note in definitions)):
+                    return position
+        offset += len(line)
+    return None

@@ -1,5 +1,5 @@
 import unittest
-from tasto.footnotes import add_note, notes, update_note
+from tasto.footnotes import add_note, notes, update_note, reference_offset
 
 
 class FootnoteTests(unittest.TestCase):
@@ -37,3 +37,23 @@ class FootnoteTests(unittest.TestCase):
     def test_edit_preserves_following_paragraph(self):
         original = '[^1]: nota\n    seconda riga\n\nAltro testo.\n'
         self.assertEqual(update_note(original, '1', 'nuova'), '[^1]: nuova\n\nAltro testo.\n')
+
+
+class ReferenceTests(unittest.TestCase):
+    def test_returns_body_reference_not_definition(self):
+        text = "[^1]: definizione\n\nUn caffè[^1]."
+        self.assertEqual(reference_offset(text, '1'), text.rindex('[^1]'))
+
+    def test_ignores_code_and_escaped_references(self):
+        text = "```\n[^2]\n```\n`[^2]` e \\[^2], poi testo[^2].\n\n[^2]: nota\n"
+        self.assertEqual(reference_offset(text, '2'), text.index('testo') + 5)
+
+    def test_ignores_references_inside_note_content(self):
+        text = "[^1]: vedi [^2]\n    anche [^2]\n\nIl testo[^2].\n[^2]: due\n"
+        self.assertEqual(reference_offset(text, '2'), text.index('testo') + 5)
+
+    def test_missing_reference_is_explicit(self):
+        self.assertIsNone(reference_offset('[^1]: sola definizione\n', '1'))
+
+    def test_first_reference_is_selected_when_reused(self):
+        self.assertEqual(reference_offset('A[^1] e B[^1]', '1'), 1)
