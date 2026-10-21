@@ -14,6 +14,14 @@ class Line:
     hidden: list = field(default_factory=list)
     heading: tuple | None = None
     block: tuple | None = None
+    literal: bool = False
+    list_prefix: str | None = None
+    quote_prefix: str | None = None
+
+
+LIST_PREFIX = re.compile(r"^(?P<indent>[ \t]*)(?P<marker>[-+*]|[0-9]{1,9}[.)])(?P<space>[ \t]+|$)")
+QUOTE_PREFIX = re.compile(r"^ {0,3}(?:>[ \t]?)+")
+THEMATIC_BREAK = re.compile(r"^ {0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$")
 
 
 INLINE = re.compile(
@@ -50,12 +58,13 @@ def parse_inline(line, start=0, end=None, depth=0):
             parse_inline(line, a, b, depth + 1)
 
 
-def parse(text):
+def parse(text, *, inline=True):
     lines = [Line(value) for value in text.split('\n')]
     fence = None
     for n, line in enumerate(lines):
         marker = re.match(r'^ {0,3}(`{3,}|~{3,})(.*)$', line.text)
         if fence is not None:
+            line.literal = True
             line.spans.append(('code', 0, len(line.text)))
             if marker and marker[1][0] == fence[1] and len(marker[1]) >= fence[2] and not marker[2].strip():
                 line.hidden.append((0, len(line.text)))
@@ -64,6 +73,7 @@ def parse(text):
                 fence = None
             continue
         if marker and not (marker[1][0] == '`' and '`' in marker[2]):
+            line.literal = True
             fence = (n, marker[1][0], len(marker[1]))
             line.spans.append(('code', 0, len(line.text)))
             line.hidden.append((0, len(line.text)))
@@ -77,9 +87,21 @@ def parse(text):
             line.hidden.append((0, heading.start(2)))
             start = heading.start(2)
         if line.text.startswith(('    ', '\t')):
+            line.literal = True
             line.spans.append(('code', 0, len(line.text)))
         else:
-            parse_inline(line, start)
+            prefix = LIST_PREFIX.match(line.text)
+            if prefix and not THEMATIC_BREAK.fullmatch(line.text):
+                line.list_prefix = prefix[0]
+                line.spans.append(('list', *prefix.span('marker')))
+                start = prefix.end()
+            quote = QUOTE_PREFIX.match(line.text)
+            if quote:
+                line.quote_prefix = quote[0]
+                line.spans.append(('quote', 0, len(line.text)))
+                start = quote.end()
+            if inline:
+                parse_inline(line, start)
             for ref in re.finditer(r"\[\^\d+\](?!:)", line.text):
                 line.spans.append(("footnote", *ref.span()))
     if fence:

@@ -1,5 +1,6 @@
 """Trasformazioni Markdown, indipendenti da GTK e verificabili senza display."""
 import re
+from .preview import LIST_PREFIX, parse
 
 
 def format_edit(text, start, end, command):
@@ -38,3 +39,32 @@ def format_edit(text, start, end, command):
         offset = max(0, min(len(replacement), start - first + len(replacement) - (last-first)))
         return first, last, replacement, offset, offset
     return first, last, replacement, 0, len(replacement)
+
+
+def list_newline_edit(text, start, end):
+    """Restituisce (inizio, fine, testo) per Invio in lista, oppure None.
+
+    Una voce vuota termina l'elenco. Selezioni su più righe, prefissi selezionati
+    e blocchi di codice mantengono il comportamento nativo dell'editor.
+    """
+    first = text.rfind('\n', 0, start) + 1
+    last = text.find('\n', start)
+    if last < 0:
+        last = len(text)
+    if end > last:
+        return None
+    # Solo classificazione dei blocchi: nessuna analisi della sintassi inline.
+    line = parse(text[:last], inline=False)[-1]
+    if not line.list_prefix or start < first + len(line.list_prefix):
+        return None
+    prefix = LIST_PREFIX.match(line.text)
+    content = text[first + prefix.end():start] + text[end:last]
+    if not content.strip():
+        return first, last, prefix['indent']
+    marker = prefix['marker']
+    if marker[0].isdigit():
+        number = str(int(marker[:-1]) + 1)
+        if marker.startswith('0'):
+            number = number.zfill(len(marker) - 1)
+        marker = number + marker[-1]
+    return start, end, '\n' + prefix['indent'] + marker + (prefix['space'] or ' ')

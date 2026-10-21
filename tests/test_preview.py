@@ -46,3 +46,29 @@ class PreviewTests(unittest.TestCase):
     def test_incomplete_syntax_images_and_intraword_underscores_stay_visible(self):
         for text in ('**aperto', '<u>aperto', '![foto](url)', 'nome_file_test', '**'):
             self.assertEqual(visible(parse(text)[0]), text)
+
+    def test_list_and_quote_prefixes_are_paragraph_metadata(self):
+        for text, prefix in [('- voce', '- '), ('1234. voce', '1234. '), ('  + voce', '  + ')]:
+            line = parse(text)[0]
+            self.assertEqual(line.list_prefix, prefix)
+            self.assertIn('list', [span[0] for span in line.spans])
+        line = parse('> > citazione **forte**')[0]
+        self.assertEqual(line.quote_prefix, '> > ')
+        self.assertEqual(visible(line), '> > citazione forte')
+
+    def test_literal_blocks_do_not_have_paragraph_indents(self):
+        for text in ('```\n- voce\n> citazione\n```', '    - codice\n    > codice'):
+            for line in parse(text):
+                self.assertIsNone(line.list_prefix)
+                self.assertIsNone(line.quote_prefix)
+                self.assertTrue(line.literal)
+
+    def test_thematic_breaks_are_not_list_items(self):
+        for text in ('- - -', '***', '* * *', '---'):
+            self.assertIsNone(parse(text)[0].list_prefix)
+
+    def test_lightweight_block_parse_does_not_parse_inline(self):
+        line = parse('- **forte**', inline=False)[0]
+        self.assertEqual(line.list_prefix, '- ')
+        self.assertEqual(visible(line), '- **forte**')
+        self.assertEqual([span[0] for span in line.spans], ['list'])

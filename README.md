@@ -78,6 +78,21 @@ Le modifiche al documento vengono raggruppate con il ritardo esistente di 150 ms
 il movimento del cursore aggiorna soltanto la visibilità delle righe che cambiano
 stato, riutilizzando il risultato del parser.
 
+## Rientri e continuazione degli elenchi
+
+Gli elenchi puntati e numerati hanno un rientro sporgente: le righe lunghe si
+allineano al testo dopo il marcatore. Anche le citazioni hanno un rientro;
+le righe lunghe si allineano al testo dopo `>`. Il rientro è solo visivo e si
+adatta al carattere, allo zoom e alla colonna di scrittura.
+
+Con **Invio** dentro una voce, Tasto inserisce il marcatore sulla riga successiva:
+`- voce` continua con `- `, `9. voce` con `10. ` e `9) voce` con `10) `.
+Il tipo di punto, gli spazi e il rientro della sorgente vengono mantenuti.
+**Invio su una voce vuota** rimuove il marcatore e termina l'elenco;
+**Maiusc+Invio** inserisce un normale a capo senza continuarlo.
+L'inserimento si annulla o ripete con una sola operazione. I blocchi di codice
+non ricevono rientri di lista/citazione né continuazione automatica.
+
 ## Schermata iniziale
 
 All'avvio trovi la biblioteca della cartella scelta e il consueto invito
