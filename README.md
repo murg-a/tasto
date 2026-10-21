@@ -40,7 +40,7 @@ chiudi prima Tasto, entra nella cartella del progetto ed esegui `git pull`.
 
 - Schermata iniziale «premi un TASTO», colonna centrata e barre laterali richiudibili.
 - Sette temi, tre famiglie di font, dimensione e larghezza regolabili.
-- Evidenziazione Markdown, indice collassabile (tre livelli), ricerca con anteprime.
+- Live Preview Markdown, indice collassabile (tre livelli), ricerca con anteprime.
 - Conteggi e obiettivo di parole con barra di avanzamento.
 - Appunti persistenti: incolla, copia dalla selezione, modifica e inserisci nel documento.
 - Menu di elementi ASCII, aiuto Markdown, annulla e ripeti.
@@ -56,6 +56,27 @@ Gli appunti sono condivisi tra i documenti e vengono conservati in
 La bozza senza nome è in `~/.local/share/tasto/recupero.md` (i percorsi seguono
 le directory XDG se personalizzate). I dati della precedente app Scrivi non
 vengono modificati o importati automaticamente.
+
+## Live Preview
+
+La riga del cursore mostra i delimitatori Markdown/HTML per modificarli. Fuori
+dalla riga attiva i delimitatori vengono nascosti: titoli da `#` a `######`,
+grassetto, corsivo, barrato, codice inline e link mostrano il testo formattato.
+Le righe selezionate mostrano la sorgente; nei blocchi delimitati da backtick o
+tilde viene rivelato l'intero blocco. Il contenuto dei blocchi di codice resta
+letterale.
+
+L'HTML supportato è limitato ai tag inline accoppiati senza attributi:
+`b`, `strong`, `i`, `em`, `u`, `s`, `del`, `code`. Il resto rimane visibile
+come sorgente; HTML e script non vengono eseguiti. Immagini, tabelle, liste e
+citazioni mantengono i propri marcatori: questa versione non è un renderer
+CommonMark completo.
+
+Il Markdown originale resta nel buffer e nel file; le decorazioni non cambiano
+salvataggio o cronologia di annullamento. Il parser è indipendente da GTK.
+Le modifiche al documento vengono raggruppate con il ritardo esistente di 150 ms;
+il movimento del cursore aggiorna soltanto la visibilità delle righe che cambiano
+stato, riutilizzando il risultato del parser.
 
 ## Schermata iniziale
 

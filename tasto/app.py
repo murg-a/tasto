@@ -30,6 +30,7 @@ verranno usati i tuoi.
 
 import bisect
 from .formatting import format_edit
+from .preview import parse as parse_preview, active_lines
 from .library import markdown_files, recent_in_folder, remember_file
 from .footnotes import notes as document_notes, add_note as add_footnote, update_note, reference_offset, references, synchronize_notes, reconcile_notes
 from pathlib import Path
@@ -133,20 +134,8 @@ def extra_css():
 
 # --- Markdown ------------------------------------------------------------------
 
-HEADING = re.compile(r"^(#{1,3})[ \t]+(.*\S)[ \t]*$")
-FENCE = re.compile(r"^\s{0,3}(```|~~~)")
 QUOTE = re.compile(r"^\s{0,3}>")
 LIST = re.compile(r"^\s*([-+*]|\d{1,3}[.)])(?=\s)")
-LINK = re.compile(r"(\[[^\]\n]+\])(\([^)\n]+\))")
-INLINE = [
-    (re.compile(r"\[\^\d+\](?!:)"), "footnote"),
-    (re.compile(r"~~[^~\n]+~~"), "strike"),
-    (re.compile(r"<u>[^\n]+?</u>"), "underline"),
-    (re.compile(r"\*\*[^*\n]+\*\*"), "bold"),
-    (re.compile(r"(?<!\*)\*(?!\s)[^*\n]+(?<!\s)\*(?!\*)"), "ital"),
-    (re.compile(r"(?<![\w_])_(?!\s)[^_\n]+(?<!\s)_(?![\w_])"), "ital"),
-    (re.compile(r"`[^`\n]+`"), "code"),
-]
 WORD = re.compile(r"\S*\w\S*")
 
 HELP = [
@@ -600,7 +589,7 @@ class Tasto(Gtk.Window):
 
         b = self.buf
         self.t_h = [b.create_tag(f"h{i}", weight=Pango.Weight.BOLD, scale=s)
-                    for i, s in ((1, 1.6), (2, 1.35), (3, 1.15))]
+                    for i, s in ((1, 1.6), (2, 1.35), (3, 1.15), (4, 1.1), (5, 1.05), (6, 1.0))]
         self.t_mark = b.create_tag("mark")
         self.tags = {
             "bold": b.create_tag("bold", weight=Pango.Weight.BOLD),
@@ -615,6 +604,11 @@ class Tasto(Gtk.Window):
             "linkurl": b.create_tag("linkurl"),
         }
         self.md_tags = self.t_h + [self.t_mark] + list(self.tags.values())
+        self.t_hidden = b.create_tag("preview-hidden", invisible=True)
+        self._preview_lines = []
+        self._preview_active = set()
+        self._preview_idle = 0
+        b.connect("mark-set", self.preview_mark_set)
         self.t_find = b.create_tag("find")   # creato per ultimo: ha la precedenza
         b.connect("begin-user-action", self.begin_note_action)
         b.connect("delete-range", self.record_note_deletion)
@@ -1628,36 +1622,66 @@ class Tasto(Gtk.Window):
                                self.buf.get_iter_at_line_offset(line, a),
                                self.buf.get_iter_at_line_offset(line, b))
 
+    def preview_mark_set(self, _buffer, _iterator, mark):
+        if mark.get_name() in ("insert", "selection_bound") and not self._preview_idle:
+            self._preview_idle = GLib.idle_add(self.update_preview_selection)
+
+    def preview_selection(self):
+        bounds = self.buf.get_selection_bounds()
+        if bounds:
+            start, end = bounds
+            last = end.get_line()
+            if end.starts_line() and end.get_offset() > start.get_offset():
+                last -= 1
+            active = active_lines(self._preview_lines, start.get_line(), last)
+            cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_line()
+            return active | active_lines(self._preview_lines, cursor, cursor)
+        line = self.buf.get_iter_at_mark(self.buf.get_insert()).get_line()
+        return active_lines(self._preview_lines, line, line)
+
+    def update_preview_selection(self):
+        self._preview_idle = 0
+        # Le decorazioni precedenti hanno offset obsoleti dopo una modifica.
+        if self._timer:
+            return False
+        active = self.preview_selection()
+        for n in active ^ self._preview_active:
+            if n >= len(self._preview_lines):
+                continue
+            line = self._preview_lines[n]
+            start = self.buf.get_iter_at_line(n)
+            end = start.copy()
+            end.forward_to_line_end()
+            self.buf.remove_tag(self.t_hidden, start, end)
+            if n not in active:
+                for a, b in line.hidden:
+                    self.tag_range(self.t_hidden, n, a, b)
+        self._preview_active = active
+        return False
+
     def style_markdown(self, text):
         start, end = self.buf.get_bounds()
-        for tag in self.md_tags:
+        for tag in self.md_tags + [self.t_hidden]:
             self.buf.remove_tag(tag, start, end)
-        heads, in_code = [], False
-        for n, line in enumerate(text.split("\n")):
-            if FENCE.match(line):
-                in_code = not in_code
-                self.tag_range(self.tags["code"], n, 0, len(line))
-            elif in_code:
-                self.tag_range(self.tags["code"], n, 0, len(line))
-            else:
-                m = HEADING.match(line)
-                if m:
-                    level = len(m.group(1))
-                    self.tag_range(self.t_h[level - 1], n, 0, len(line))
-                    self.tag_range(self.t_mark, n, 0, level)
-                    heads.append((level, m.group(2), n))
-                    continue
-                if QUOTE.match(line):
-                    self.tag_range(self.tags["quote"], n, 0, len(line))
-                m = LIST.match(line)
-                if m:
-                    self.tag_range(self.tags["list"], n, m.start(1), m.end(1))
-                for rx, name in INLINE:
-                    for mm in rx.finditer(line):
-                        self.tag_range(self.tags[name], n, mm.start(), mm.end())
-                for mm in LINK.finditer(line):
-                    self.tag_range(self.tags["linktext"], n, *mm.span(1))
-                    self.tag_range(self.tags["linkurl"], n, *mm.span(2))
+        self._preview_lines = parse_preview(text)
+        self._preview_active = self.preview_selection()
+        heads = []
+        for n, line in enumerate(self._preview_lines):
+            if line.heading:
+                # L'indice esistente mostra i primi tre livelli.
+                if line.heading[0] <= 3:
+                    heads.append(line.heading)
+            for name, a, b in line.spans:
+                tag = self.t_h[int(name[1:]) - 1] if name.startswith('h') and name[1:].isdigit() else self.tags[name]
+                self.tag_range(tag, n, a, b)
+            if QUOTE.match(line.text):
+                self.tag_range(self.tags["quote"], n, 0, len(line.text))
+            marker = LIST.match(line.text)
+            if marker:
+                self.tag_range(self.tags["list"], n, *marker.span(1))
+            if n not in self._preview_active:
+                for a, b in line.hidden:
+                    self.tag_range(self.t_hidden, n, a, b)
         return heads
 
     def update_counts(self, text):
