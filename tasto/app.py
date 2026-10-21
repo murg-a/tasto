@@ -29,6 +29,8 @@ verranno usati i tuoi.
 """
 
 import bisect
+import hashlib
+from .paragraph_dock import ParagraphDock
 from .formatting import format_edit, list_newline_edit
 from .preview import parse as parse_preview, active_lines
 from .library import markdown_files, recent_in_folder, remember_file
@@ -443,7 +445,7 @@ def load_config():
         if not isinstance(cfg["recent_files"], list):
             cfg["recent_files"] = []
         cfg["recent_files"] = [path for path in cfg["recent_files"] if isinstance(path, str)][:100]
-        if cfg["right_page"] not in ("scratch", "footnotes"):
+        if cfg["right_page"] not in ("scratch", "footnotes", "paragraphs"):
             cfg["right_page"] = "scratch"
         if cfg["theme"] not in THEMES:
             cfg["theme"] = DEFAULTS["theme"]
@@ -502,13 +504,14 @@ def fmt(n):
     return f"{n:,}".replace(",", ".")
 
 
-class Tasto(Gtk.Window):
+class Tasto(Gtk.Window, ParagraphDock):
     def __init__(self):
         super().__init__(title=APP)
         self.set_name("main")
         self.cfg = load_config()
         self.notes = load_notes()
         self.path = None
+        self.init_dock()
         self.typewriter = Typewriter()
         self._timer = 0
         self._autosave_timer = 0
@@ -582,7 +585,8 @@ class Tasto(Gtk.Window):
 
         # Tre colonne affiancate, senza maniglie né divisori: tutto sullo stesso piano
         self.body.pack_start(self.left_pane, False, False, 0)
-        self.body.pack_start(self.editor_sw, True, True, 0)
+        self.setup_dock_editor()
+        self.body.pack_start(self.editor_overlay, True, True, 0)
         self.body.pack_start(self.right_pane, False, False, 0)
         self.root.connect("size-allocate", self.schedule_fit)
 
@@ -637,6 +641,7 @@ class Tasto(Gtk.Window):
             else:
                 self.cfg["sound"] = False
         self.apply_style()
+        self.load_dock()
         self.refresh()
 
     # --- Costruzione -----------------------------------------------------------
@@ -847,6 +852,7 @@ class Tasto(Gtk.Window):
         self.right_stack.set_transition_duration(120)
         self.right_stack.add_titled(scratch_page, "scratch", "Appunti")
         self.right_stack.add_titled(footnote_sw, "footnotes", "Note")
+        self.build_dock_page()
         self.right_stack.show_all()
         self.right_stack.set_visible_child_name(self.cfg["right_page"])
         self.right_stack.connect("notify::visible-child-name", self.remember_right_page)
@@ -1616,6 +1622,9 @@ class Tasto(Gtk.Window):
         if self.search.get_text():
             self.run_search(text)
         self.update_title()
+        if self.parked or self._dock_history or self._dock_redo:
+            if not self._dock_failed and not self._dock_warning:
+                self.persist_dock(self.parked)
         return False
 
     def tag_range(self, tag, line, a, b):
@@ -2397,6 +2406,8 @@ class Tasto(Gtk.Window):
         if self.path:
             if write_atomic(self.path, text):
                 self.buf.set_modified(False)
+                if self.parked or self._dock_history or self._dock_redo:
+                    self.dock_saved()
             elif not self._autosave_failed:
                 self._autosave_failed = True
                 self.error(f"Salvataggio automatico non riuscito:\n{self.path}")
@@ -2405,6 +2416,8 @@ class Tasto(Gtk.Window):
         elif text != self._last_draft:
             if write_atomic(RECOVERY_PATH, text):
                 self._last_draft = text
+                if self.parked or self._dock_history or self._dock_redo:
+                    self.dock_saved()
 
     def remove_draft(self):
         self._last_draft = None
@@ -2478,9 +2491,9 @@ class Tasto(Gtk.Window):
         d.destroy()
         if response == Gtk.ResponseType.ACCEPT:
             return self.file_save()
-        return response == Gtk.ResponseType.REJECT
+        return response == Gtk.ResponseType.REJECT and self.discard_dock_changes()
 
-    def set_content(self, text, path):
+    def set_content(self, text, path, recover_dock=True):
         self.finish_note_action()
         if self._viewport_restore:
             GLib.source_remove(self._viewport_restore)
@@ -2495,6 +2508,19 @@ class Tasto(Gtk.Window):
         self.buf.set_modified(text != original)
         self.buf.place_cursor(self.buf.get_start_iter())
         self.path = path
+        if recover_dock:
+            self.load_dock()
+        else:
+            self._dock_failed = False
+            self._dock_corrupt = False
+            self._dock_warning = ''
+            self._dock_base = hashlib.sha256(b'').hexdigest()
+            self.parked = []
+            self._dock_saved_cards = []
+            self._dock_history = []
+            self._dock_redo = []
+            self.persist_dock([])
+            self.rebuild_dock()
         self._autosave_failed = False
         self.refresh()
 
@@ -2502,7 +2528,7 @@ class Tasto(Gtk.Window):
         if self.confirm():
             if self.path is None:
                 self.remove_draft()
-            self.set_content("", None)
+            self.set_content("", None, recover_dock=False)
             self._home_viewport = None
             self.dismiss_splash()
             self.view.grab_focus()
@@ -2535,19 +2561,29 @@ class Tasto(Gtk.Window):
                 return False
             if not os.path.splitext(path)[1]:
                 path += ".md"
+        if not self.persist_dock(self.parked, path):
+            return False
         if not write_atomic(path, self.get_text()):
             self.error(f"Impossibile salvare il file:\n{path}")
             return False
         if self.path is None:
             self.remove_draft()             # la bozza senza nome ora è un file vero
+            try:
+                os.remove(self.dock_path())
+            except OSError:
+                pass
         self.path = path
         self.buf.set_modified(False)
+        if not self.dock_saved():
+            return False
         self.remember_document(path)
         self.update_title()
         return True
 
     def on_delete(self, *_):
         self.finish_note_action()
+        if self._dock_failed and not self._dock_corrupt and not self.persist_dock(self.parked):
+            return True
         if self._editing_note is not None:
             self.note_status.set_text("Salva o annulla la modifica prima di chiudere Tasto.")
             self.note_editor.grab_focus()
