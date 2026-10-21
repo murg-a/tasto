@@ -57,54 +57,22 @@ def shortcut(*syms):
 win=Tasto();win.cfg['autosave']=False
 win.start();win.dismiss_splash();pump()
 x11.XSetInputFocus(display,win.get_window().get_xid(),2,0);x11.XFlush(display)
-# Live Preview: il buffer conserva sorgente e undo; il cursore rivela i marcatori.
+# Source mode: no hidden markers, font changes or visual paragraph indentation.
 source = '# Titolo\n**caffè** e <u>testo</u>\n\n```md\n**letterale**\n```\nfine'
 win.set_content(source, None);pump()
-win.buf.place_cursor(win.buf.get_start_iter());pump()
-assert win.buf.get_iter_at_offset(0).has_tag(win.t_hidden) is False
-bold_start = source.index('**caffè**')
-assert win.buf.get_iter_at_offset(bold_start).has_tag(win.t_hidden)
-win.buf.set_modified(False)
-win.buf.place_cursor(win.buf.get_iter_at_offset(bold_start + 3));pump()
-assert not win.buf.get_iter_at_offset(bold_start).has_tag(win.t_hidden)
-assert win.buf.get_start_iter().has_tag(win.t_hidden)
-assert win.get_text() == source and not win.buf.get_modified()
-# Una selezione rende modificabili tutte le righe coinvolte.
-win.buf.select_range(win.buf.get_start_iter(), win.buf.get_iter_at_line(2));pump()
-assert not win.buf.get_start_iter().has_tag(win.t_hidden)
-assert not win.buf.get_iter_at_offset(bold_start).has_tag(win.t_hidden)
-win.buf.place_cursor(win.buf.get_iter_at_line(4));pump()
-assert not win.buf.get_iter_at_line(3).has_tag(win.t_hidden)
-assert not win.buf.get_iter_at_line(5).has_tag(win.t_hidden)
+for offset in (0, source.index('**caffè**'), source.index('**letterale**')):
+    win.buf.place_cursor(win.buf.get_iter_at_offset(offset));pump()
+    for it in (win.buf.get_start_iter(), win.buf.get_iter_at_offset(source.index('**caffè**'))):
+        assert not it.has_tag(win.t_hidden)
+        assert not any(it.has_tag(tag) for tag in win.md_tags)
 assert win.get_text() == source
-print('PASS: Live Preview rivela riga, selezione e blocco attivo senza modificare la sorgente.')
-# Liste e citazioni: rientro del paragrafo e righe visive allineate al testo.
-def assert_hanging_indent(prefix):
-    content = win.buf.get_iter_at_offset(len(prefix))
-    wrapped = win.buf.get_start_iter()
-    assert win.view.forward_display_line(wrapped)
-    assert wrapped.get_line() == 0 and wrapped.get_offset() > len(prefix)
-    first_x = win.view.get_iter_location(content).x
-    wrap_x = win.view.get_iter_location(wrapped).x
-    assert first_x > win.view.get_left_margin()
-    assert abs(first_x - wrap_x) <= 2, (prefix, first_x, wrap_x)
-
+assert win._heads
 for prefix in ('- ', '123. ', '> '):
-    win.set_content(prefix + 'Una voce lunga con parole da mandare a capo. ' * 40, None)
-    win.buf.place_cursor(win.buf.get_start_iter());pump()
-    assert_hanging_indent(prefix)
-    before = win.get_text()
-    extra = win.view.get_iter_location(win.buf.get_iter_at_offset(len(prefix))).x - win.view.get_left_margin()
-    win.toggle_sidebar();pump()
-    assert_hanging_indent(prefix)
-    shifted = win.view.get_iter_location(win.buf.get_iter_at_offset(len(prefix))).x - win.view.get_left_margin()
-    assert abs(extra - shifted) <= 2
-    win.toggle_sidebar();pump()
-    old_size = win.cfg['size']
-    win.change_size(2);pump();assert_hanging_indent(prefix)
-    win.cfg['size'] = old_size;win.apply_style();pump()
-    assert win.get_text() == before
-print('PASS: liste e citazioni con rientro sporgente, ritorni visivi, zoom e colonna centrata.')
+    text = prefix + 'Una voce lunga con parole da mandare a capo. ' * 40
+    win.set_content(text, None);pump()
+    assert not any(tag.get_property('left-margin-set') for tag in win.buf.get_start_iter().get_tags())
+    assert win.get_text() == text
+print('PASS: Markdown letterale, marcatori sempre visibili, indice disponibile, nessuna formattazione visuale.')
 # Invio nativo: prefisso, numero successivo, voce vuota, annulla/ripeti.
 win.set_content('- caffè', None);win.view.grab_focus();pump()
 win.buf.place_cursor(win.buf.get_end_iter())

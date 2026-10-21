@@ -29,10 +29,9 @@ verranno usati i tuoi.
 """
 
 import bisect
-import hashlib
-from .paragraph_dock import ParagraphDock
+from .paragraph_shift import ParagraphShift
 from .formatting import format_edit, list_newline_edit
-from .preview import parse as parse_preview, active_lines
+from .preview import parse as parse_preview
 from .library import markdown_files, recent_in_folder, remember_file
 from .footnotes import notes as document_notes, add_note as add_footnote, update_note, reference_offset, references, synchronize_notes, reconcile_notes
 from pathlib import Path
@@ -445,7 +444,7 @@ def load_config():
         if not isinstance(cfg["recent_files"], list):
             cfg["recent_files"] = []
         cfg["recent_files"] = [path for path in cfg["recent_files"] if isinstance(path, str)][:100]
-        if cfg["right_page"] not in ("scratch", "footnotes", "paragraphs"):
+        if cfg["right_page"] not in ("scratch", "footnotes"):
             cfg["right_page"] = "scratch"
         if cfg["theme"] not in THEMES:
             cfg["theme"] = DEFAULTS["theme"]
@@ -504,14 +503,14 @@ def fmt(n):
     return f"{n:,}".replace(",", ".")
 
 
-class Tasto(Gtk.Window, ParagraphDock):
+class Tasto(Gtk.Window, ParagraphShift):
     def __init__(self):
         super().__init__(title=APP)
         self.set_name("main")
         self.cfg = load_config()
         self.notes = load_notes()
         self.path = None
-        self.init_dock()
+        self.init_shift()
         self.typewriter = Typewriter()
         self._timer = 0
         self._autosave_timer = 0
@@ -585,7 +584,7 @@ class Tasto(Gtk.Window, ParagraphDock):
 
         # Tre colonne affiancate, senza maniglie né divisori: tutto sullo stesso piano
         self.body.pack_start(self.left_pane, False, False, 0)
-        self.setup_dock_editor()
+        self.setup_shift_editor()
         self.body.pack_start(self.editor_overlay, True, True, 0)
         self.body.pack_start(self.right_pane, False, False, 0)
         self.root.connect("size-allocate", self.schedule_fit)
@@ -608,11 +607,6 @@ class Tasto(Gtk.Window, ParagraphDock):
         }
         self.md_tags = self.t_h + [self.t_mark] + list(self.tags.values())
         self.t_hidden = b.create_tag("preview-hidden", invisible=True)
-        self._paragraph_tags = {}
-        self._preview_lines = []
-        self._preview_active = set()
-        self._preview_idle = 0
-        b.connect("mark-set", self.preview_mark_set)
         self.t_find = b.create_tag("find")   # creato per ultimo: ha la precedenza
         b.connect("begin-user-action", self.begin_note_action)
         b.connect("delete-range", self.record_note_deletion)
@@ -624,6 +618,8 @@ class Tasto(Gtk.Window, ParagraphDock):
         b.connect("modified-changed", lambda *_: self.update_title())
 
         self.build_bottom_bar()
+        self.color_btn.set_no_show_all(True)
+        self.color_btn.hide()
         self.build_splash()
         self.build_note_editor()
 
@@ -641,7 +637,7 @@ class Tasto(Gtk.Window, ParagraphDock):
             else:
                 self.cfg["sound"] = False
         self.apply_style()
-        self.load_dock()
+        self.load_shift()
         self.refresh()
 
     # --- Costruzione -----------------------------------------------------------
@@ -852,7 +848,6 @@ class Tasto(Gtk.Window, ParagraphDock):
         self.right_stack.set_transition_duration(120)
         self.right_stack.add_titled(scratch_page, "scratch", "Appunti")
         self.right_stack.add_titled(footnote_sw, "footnotes", "Note")
-        self.build_dock_page()
         self.right_stack.show_all()
         self.right_stack.set_visible_child_name(self.cfg["right_page"])
         self.right_stack.connect("notify::visible-child-name", self.remember_right_page)
@@ -1530,7 +1525,6 @@ class Tasto(Gtk.Window, ParagraphDock):
             self._margins = (left, right)
             self.view.set_left_margin(left)
             self.view.set_right_margin(right)
-            self.update_paragraph_margins()
         return False
 
     # --- Stile markdown, indice e conteggi -----------------------------------------
@@ -1622,9 +1616,9 @@ class Tasto(Gtk.Window, ParagraphDock):
         if self.search.get_text():
             self.run_search(text)
         self.update_title()
-        if self.parked or self._dock_history or self._dock_redo:
-            if not self._dock_failed and not self._dock_warning:
-                self.persist_dock(self.parked)
+        if self.shift_groups and not self._shift_busy and not self._shift_corrupt:
+            self.persist_shift()
+        self.queue_shift()
         return False
 
     def tag_range(self, tag, line, a, b):
@@ -1633,97 +1627,14 @@ class Tasto(Gtk.Window, ParagraphDock):
                                self.buf.get_iter_at_line_offset(line, a),
                                self.buf.get_iter_at_line_offset(line, b))
 
-    def preview_mark_set(self, _buffer, _iterator, mark):
-        if mark.get_name() in ("insert", "selection_bound") and not self._preview_idle:
-            self._preview_idle = GLib.idle_add(self.update_preview_selection)
-
-    def preview_selection(self):
-        bounds = self.buf.get_selection_bounds()
-        if bounds:
-            start, end = bounds
-            last = end.get_line()
-            if end.starts_line() and end.get_offset() > start.get_offset():
-                last -= 1
-            active = active_lines(self._preview_lines, start.get_line(), last)
-            cursor = self.buf.get_iter_at_mark(self.buf.get_insert()).get_line()
-            return active | active_lines(self._preview_lines, cursor, cursor)
-        line = self.buf.get_iter_at_mark(self.buf.get_insert()).get_line()
-        return active_lines(self._preview_lines, line, line)
-
-    def update_preview_selection(self):
-        self._preview_idle = 0
-        # Le decorazioni precedenti hanno offset obsoleti dopo una modifica.
-        if self._timer:
-            return False
-        active = self.preview_selection()
-        for n in active ^ self._preview_active:
-            if n >= len(self._preview_lines):
-                continue
-            line = self._preview_lines[n]
-            start = self.buf.get_iter_at_line(n)
-            end = start.copy()
-            end.forward_to_line_end()
-            self.buf.remove_tag(self.t_hidden, start, end)
-            if n not in active:
-                for a, b in line.hidden:
-                    self.tag_range(self.t_hidden, n, a, b)
-        self._preview_active = active
-        return False
-
     def style_markdown(self, text):
         start, end = self.buf.get_bounds()
         for tag in self.md_tags + [self.t_hidden]:
             self.buf.remove_tag(tag, start, end)
-        self._preview_lines = parse_preview(text)
-        self._preview_active = self.preview_selection()
-        heads = []
-        for n, line in enumerate(self._preview_lines):
-            if line.heading:
-                # L'indice esistente mostra i primi tre livelli.
-                if line.heading[0] <= 3:
-                    heads.append(line.heading)
-            for name, a, b in line.spans:
-                tag = self.t_h[int(name[1:]) - 1] if name.startswith('h') and name[1:].isdigit() else self.tags[name]
-                self.tag_range(tag, n, a, b)
-            if n not in self._preview_active:
-                for a, b in line.hidden:
-                    self.tag_range(self.t_hidden, n, a, b)
-        self.style_paragraphs()
-        return heads
-
-    def update_paragraph_margins(self):
-        # GtkTextTag:left-margin sostituisce il margine di GtkTextView.
-        # Sommare il margine della colonna mantiene il testo centrato.
-        _, _, scale = FONTS[self.cfg["font"]]
-        padding = round(self.cfg["size"] * scale * 96 / 72 * 1.5)
-        base = self.view.get_left_margin() + padding
-        for width, tag in self._paragraph_tags.items():
-            left = base + width
-            if tag.get_property("left-margin") != left:
-                tag.set_property("left-margin", left)
-
-    def style_paragraphs(self):
-        start, end = self.buf.get_bounds()
-        for tag in self._paragraph_tags.values():
-            self.buf.remove_tag(tag, start, end)
-        layout = self.view.create_pango_layout("")
-        widths, used = {}, set()
-        for n, line in enumerate(self._preview_lines):
-            prefix = line.list_prefix or line.quote_prefix
-            if prefix is None:
-                continue
-            if prefix not in widths:
-                layout.set_text(prefix, -1)
-                widths[prefix] = layout.get_pixel_size()[0]
-            width = widths[prefix]
-            if width not in self._paragraph_tags:
-                # Un tag per larghezza, condiviso anche fra numeri diversi.
-                self._paragraph_tags[width] = self.buf.create_tag(None, indent=-width)
-            used.add(width)
-            self.tag_range(self._paragraph_tags[width], n, 0, len(line.text))
-        self.update_paragraph_margins()
-        for width in self._paragraph_tags.keys() - used:
-            self.buf.get_tag_table().remove(self._paragraph_tags.pop(width))
+        lines = parse_preview(text)
+        # Keep the outline, but apply no visual Markdown formatting or hidden tags.
+        return [line.heading for line in lines
+                if line.heading and line.heading[0] <= 3]
 
     def update_counts(self, text):
         self._chars = len(text) - text.count("\n")  # spazi inclusi, a capo esclusi
@@ -2406,8 +2317,8 @@ class Tasto(Gtk.Window, ParagraphDock):
         if self.path:
             if write_atomic(self.path, text):
                 self.buf.set_modified(False)
-                if self.parked or self._dock_history or self._dock_redo:
-                    self.dock_saved()
+                if self.shift_groups:
+                    self.shift_saved()
             elif not self._autosave_failed:
                 self._autosave_failed = True
                 self.error(f"Salvataggio automatico non riuscito:\n{self.path}")
@@ -2416,8 +2327,8 @@ class Tasto(Gtk.Window, ParagraphDock):
         elif text != self._last_draft:
             if write_atomic(RECOVERY_PATH, text):
                 self._last_draft = text
-                if self.parked or self._dock_history or self._dock_redo:
-                    self.dock_saved()
+                if self.shift_groups:
+                    self.shift_saved()
 
     def remove_draft(self):
         self._last_draft = None
@@ -2491,15 +2402,14 @@ class Tasto(Gtk.Window, ParagraphDock):
         d.destroy()
         if response == Gtk.ResponseType.ACCEPT:
             return self.file_save()
-        return response == Gtk.ResponseType.REJECT and self.discard_dock_changes()
+        return response == Gtk.ResponseType.REJECT and self.discard_shift()
 
-    def set_content(self, text, path, recover_dock=True):
+    def set_content(self, text, path, recover_shift=True):
         self.finish_note_action()
         if self._viewport_restore:
             GLib.source_remove(self._viewport_restore)
             self._viewport_restore = 0
         original = text
-        text, _cursor, _mapping = synchronize_notes(text)
         self._mutating_notes = True
         self.buf.begin_not_undoable_action()
         self.buf.set_text(text)
@@ -2508,19 +2418,17 @@ class Tasto(Gtk.Window, ParagraphDock):
         self.buf.set_modified(text != original)
         self.buf.place_cursor(self.buf.get_start_iter())
         self.path = path
-        if recover_dock:
-            self.load_dock()
-        else:
-            self._dock_failed = False
-            self._dock_corrupt = False
-            self._dock_warning = ''
-            self._dock_base = hashlib.sha256(b'').hexdigest()
-            self.parked = []
-            self._dock_saved_cards = []
-            self._dock_history = []
-            self._dock_redo = []
-            self.persist_dock([])
-            self.rebuild_dock()
+        self.load_shift(recover=recover_shift)
+        if not self.shift_groups and not self._shift_corrupt:
+            current = self.get_text()
+            normalized, _cursor, _mapping = synchronize_notes(current)
+            if normalized != current:
+                self._mutating_notes = True
+                self.buf.begin_not_undoable_action()
+                self.buf.set_text(normalized)
+                self.buf.end_not_undoable_action()
+                self._mutating_notes = False
+                self.buf.set_modified(True)
         self._autosave_failed = False
         self.refresh()
 
@@ -2528,7 +2436,7 @@ class Tasto(Gtk.Window, ParagraphDock):
         if self.confirm():
             if self.path is None:
                 self.remove_draft()
-            self.set_content("", None, recover_dock=False)
+            self.set_content("", None, recover_shift=False)
             self._home_viewport = None
             self.dismiss_splash()
             self.view.grab_focus()
@@ -2561,7 +2469,7 @@ class Tasto(Gtk.Window, ParagraphDock):
                 return False
             if not os.path.splitext(path)[1]:
                 path += ".md"
-        if not self.persist_dock(self.parked, path):
+        if not self.persist_shift(path):
             return False
         if not write_atomic(path, self.get_text()):
             self.error(f"Impossibile salvare il file:\n{path}")
@@ -2569,12 +2477,12 @@ class Tasto(Gtk.Window, ParagraphDock):
         if self.path is None:
             self.remove_draft()             # la bozza senza nome ora è un file vero
             try:
-                os.remove(self.dock_path())
+                os.remove(self.shift_path())
             except OSError:
                 pass
         self.path = path
         self.buf.set_modified(False)
-        if not self.dock_saved():
+        if not self.shift_saved():
             return False
         self.remember_document(path)
         self.update_title()
@@ -2582,7 +2490,7 @@ class Tasto(Gtk.Window, ParagraphDock):
 
     def on_delete(self, *_):
         self.finish_note_action()
-        if self._dock_failed and not self._dock_corrupt and not self.persist_dock(self.parked):
+        if self._shift_failed and not self._shift_corrupt and not self.persist_shift():
             return True
         if self._editing_note is not None:
             self.note_status.set_text("Salva o annulla la modifica prima di chiudere Tasto.")

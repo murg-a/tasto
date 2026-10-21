@@ -40,7 +40,7 @@ chiudi prima Tasto, entra nella cartella del progetto ed esegui `git pull`.
 
 - Schermata iniziale «premi un TASTO», colonna centrata e barre laterali richiudibili.
 - Sette temi, tre famiglie di font, dimensione e larghezza regolabili.
-- Live Preview Markdown, indice collassabile (tre livelli), ricerca con anteprime.
+- Markdown letterale, varianti orizzontali dei paragrafi, indice collassabile (tre livelli), ricerca con anteprime.
 - Conteggi e obiettivo di parole con barra di avanzamento.
 - Appunti persistenti: incolla, copia dalla selezione, modifica e inserisci nel documento.
 - Menu di elementi ASCII, aiuto Markdown, annulla e ripeti.
@@ -57,33 +57,18 @@ La bozza senza nome è in `~/.local/share/tasto/recupero.md` (i percorsi seguono
 le directory XDG se personalizzate). I dati della precedente app Scrivi non
 vengono modificati o importati automaticamente.
 
-## Live Preview
+## Markdown letterale
 
-La riga del cursore mostra i delimitatori Markdown/HTML per modificarli. Fuori
-dalla riga attiva i delimitatori vengono nascosti: titoli da `#` a `######`,
-grassetto, corsivo, barrato, codice inline e link mostrano il testo formattato.
-Le righe selezionate mostrano la sorgente; nei blocchi delimitati da backtick o
-tilde viene rivelato l'intero blocco. Il contenuto dei blocchi di codice resta
-letterale.
-
-L'HTML supportato è limitato ai tag inline accoppiati senza attributi:
-`b`, `strong`, `i`, `em`, `u`, `s`, `del`, `code`. Il resto rimane visibile
-come sorgente; HTML e script non vengono eseguiti. Immagini, tabelle, liste e
-citazioni mantengono i propri marcatori: questa versione non è un renderer
-CommonMark completo.
-
-Il Markdown originale resta nel buffer e nel file; le decorazioni non cambiano
-salvataggio o cronologia di annullamento. Il parser è indipendente da GTK.
-Le modifiche al documento vengono raggruppate con il ritardo esistente di 150 ms;
-il movimento del cursore aggiorna soltanto la visibilità delle righe che cambiano
-stato, riutilizzando il risultato del parser.
+Il testo mostra sempre i marcatori Markdown (`**`, `_`, `#`, backtick, link e
+richiami delle note). Titoli, grassetto, corsivo e codice non ricevono una
+formattazione visiva: il documento rimane testo sorgente anche fuori dalla riga
+attiva. I comandi di formattazione continuano a inserire i marcatori e l'indice
+riconosce i titoli. Anche le varianti a sinistra mostrano la sorgente letterale.
 
 ## Rientri e continuazione degli elenchi
 
-Gli elenchi puntati e numerati hanno un rientro sporgente: le righe lunghe si
-allineano al testo dopo il marcatore. Anche le citazioni hanno un rientro;
-le righe lunghe si allineano al testo dopo `>`. Il rientro è solo visivo e si
-adatta al carattere, allo zoom e alla colonna di scrittura.
+Elenchi e citazioni mantengono i prefissi come testo sorgente, senza rientri
+visivi aggiuntivi. I rientri scritti nel documento vengono conservati.
 
 Con **Invio** dentro una voce, Tasto inserisce il marcatore sulla riga successiva:
 `- voce` continua con `- `, `9. voce` con `10. ` e `9) voce` con `10) `.
@@ -143,8 +128,8 @@ il menu si chiude e il riquadro si aggiorna:
 - **Dracula**: fondo viola scuro e accenti viola, rosa e ciano.
 - **Terminale**: verde su fondo quasi nero.
 
-Il tema viene ricordato alla chiusura. Attiva il pulsante **✱** per vedere
-anche i colori Markdown specifici del tema.
+Il tema viene ricordato alla chiusura. Il testo Markdown mantiene il colore
+uniforme del tema, con tutti i marcatori visibili.
 
 ## Menu + e formattazione
 
@@ -189,37 +174,44 @@ modifiche; **Annulla** o **Esc** le scarta. Il documento centrale resta invariat
 Gli appunti modificati vengono salvati subito nel loro file JSON, con scrittura
 atomica. Un errore di salvataggio lascia l'editor aperto e conserva il testo.
 
-### Paragrafi: parcheggio nel pannello destro
+### Varianti orizzontali dei paragrafi
 
-La scheda **Paragrafi** contiene blocchi del documento aperto, separati dagli
-appunti condivisi e dalle note. Passa il mouse sul testo: la maniglia **⠿**
-compare nel margine sinistro del blocco. Trascinala verso il pannello destro:
-il testo viene spostato in una card e la scheda Paragrafi si apre automaticamente.
-Se il pannello è nascosto, viene mostrato all'inizio del trascinamento.
+Quando il cursore si trova in un paragrafo, una maniglia **⠿** e il pulsante
+**+** compaiono a destra. La maniglia identifica il blocco; non è trascinabile.
+Un paragrafo comprende le righe consecutive separate da righe vuote; i blocchi
+di codice delimitati da backtick o tilde restano interi.
 
-Trascina la card nel testo per reinserirla: il cursore indica il punto di
-rilascio e vengono aggiunte le righe vuote necessarie a separare i paragrafi.
-Puoi anche usare **Inserisci al cursore**. Il trasferimento sposta il contenuto,
-senza lasciare copie nel parcheggio. **Ctrl+Z / Ctrl+Y** annullano e ripetono
-insieme la modifica del documento e della card, durante la sessione corrente.
+Premi **+** per creare una variante vuota: il paragrafo viene portato al centro
+della vista e l'originale compare a sinistra, mentre a destra scrivi la nuova
+versione nel flusso del documento. Per lasciare spazio, le barre laterali vengono
+nascoste temporaneamente. Il testo precedente e quello successivo restano comuni.
 
-Un blocco comprende le righe consecutive separate da righe vuote; un blocco
-di codice delimitato da backtick o tilde viene conservato intero anche se
-contiene righe vuote. Le note a margine seguono i paragrafi che le richiamano:
-quelle ancora richiamate altrove rimangono anche nel documento; al reinserimento
-la numerazione viene riconciliata. Le definizioni delle note non si parcheggiano
-direttamente: sposta invece il paragrafo che contiene il richiamo.
+**‹ / ›** selezionano la variante precedente o successiva; il contatore mostra
+quella attiva. **+** aggiunge un'altra alternativa. Quella a sinistra è una
+copia di lettura della versione precedente: usa **‹** per attivarla e modificarla.
+**Esc** o **×** richiudono l'affiancamento conservando la variante scelta e
+ripristinano le barre laterali. Scrivere o cliccare su un altro paragrafo torna
+alla vista verticale. Una variante successiva può essere riaperta con **›**.
 
-Il parcheggio è salvato automaticamente in `~/.config/tasto/paragraphs/`
-(o nella corrispondente directory XDG), con un file JSON per percorso del documento.
-Contiene anche un'istantanea di recupero per gli spostamenti non ancora salvati,
-compresi quelli effettuati con autosalvataggio disattivato. Alla riapertura viene
-recuperata solo se il file non è cambiato esternamente; altrimenti viene mantenuto
-il file esterno e un messaggio nella scheda segnala il conflitto. **Scarta** nel
-dialogo di salvataggio ripristina anche il parcheggio dell'ultimo salvataggio.
-**Salva con nome** copia il parcheggio sul nuovo documento. Il Markdown non
-contiene metadati aggiuntivi; trasferire soltanto il file `.md` su un altro
-computer non trasferisce le card. La vista Mappa non fa parte di questa fase.
+Soltanto la variante attiva occupa quel punto nel file Markdown e partecipa
+alla ricerca e ai conteggi. Le alternative sono salvate automaticamente in
+`~/.config/tasto/variants/` (o nella directory XDG corrispondente), in un JSON
+per percorso di documento. I segnalibri interni seguono le modifiche al testo
+precedente. Le modifiche del testo e i cambi di variante che cambiano il documento
+sono annullabili con **Ctrl+Z / Ctrl+Y** durante la sessione corrente.
+
+L'archivio include il recupero degli spostamenti non ancora salvati. **Salva**
+e **Salva con nome** conservano anche le alternative; **Scarta** ripristina lo
+stato dell'ultimo salvataggio. Se il file è cambiato esternamente e gli ancoraggi
+non sono più verificabili, Tasto conserva intatto l'archivio delle varianti e
+segnala il conflitto senza sovrascriverlo. Le note associate alle alternative
+sono conservate per evitare che una rinumerazione le colleghi a contenuti diversi.
+Crea le varianti sui paragrafi con i richiami, non sulle definizioni delle note.
+
+Copiare soltanto il file `.md` su un altro computer non trasferisce le alternative:
+serve anche l'archivio JSON. Il precedente parcheggio con trascinamento non è più
+presente nell'interfaccia; i suoi eventuali archivi esistenti restano intatti.
+La vista Mappa non fa parte di questa implementazione.
 
 ### Note a margine
 
@@ -271,6 +263,8 @@ necessaria all'allineamento.
 ## Sviluppo
 
 - `tasto/app.py`: base GTK importata da `scrivi3.py`, adattata al nome e ai percorsi Tasto.
+- `tasto/paragraph_shift.py`: varianti orizzontali, ancoraggi, persistenza e controlli.
+- `tasto/paragraphs.py`: riconoscimento dei blocchi Markdown.
 - `tasto/library.py`: elenco dei file Markdown e recenti della cartella scelta.
 - `tasto/footnotes.py`: lettura, creazione e modifica di note Markdown.
 - `tasto/formatting.py`: trasformazioni Markdown usate dal menu +.
@@ -312,11 +306,12 @@ di tastiera. Nel cloud è stato eseguito con GTK 3, GtkSourceView 4 e Xvfb.
 
 Il parser CSS di GTK 3 è stato verificato anche sulle 21 combinazioni di temi e font.
 
-Test del parcheggio con trascinamento X11 reale su display virtuale isolato:
+Test delle varianti e dei pulsanti con clic X11 reali su display virtuale isolato:
 
 ```sh
-xvfb-run -a /usr/bin/python3 tests/gtk_paragraphs.py
+xvfb-run -a /usr/bin/python3 tests/gtk_shift.py
 ```
 
-Verifica spostamenti nei due sensi, maniglia al passaggio del mouse, annulla/ripeti,
-riapertura e recupero, isolamento per documento e note a margine associate.
+Verifica creazione, navigazione, affiancamento centrato, Markdown letterale,
+annulla/ripeti, ancoraggi, isolamento per documento, riapertura, recupero,
+conflitti esterni e gestione degli errori di scrittura.

@@ -1,4 +1,4 @@
-"""Markdown blocks and document-local paragraph dock storage (no GTK)."""
+"""Markdown block boundaries, independent of GTK."""
 from dataclasses import dataclass
 import re
 

@@ -124,18 +124,18 @@
 #splash #home-library button:focus { background-color: @sel@; border-color: @dim@; }
 #splash label.home-shortcuts { font-size: @ui@pt; color: @dim@; }
 
-#paragraph-card {
-    background-color: @bg@;
-    border: 1px solid @line@;
-    border-radius: 6px;
+#shift-preview, #shift-preview text {
+    background-color: @bg@; color: @dim@;
+    font-family: @font@; font-size: @size@pt;
 }
-#paragraph-card:hover { border-color: @dim@; }
-#paragraph-grip {
-    background-image: none;
-    background-color: @bg@;
-    color: @dim@;
-    border: none;
-    box-shadow: none;
-    padding: 2px 6px;
+#shift-preview { border-left: 1px solid @line@; }
+#shift-tools { background-color: @bg@; }
+#shift-tools label { color: @dim@; font-family: @uifont@; font-size: @ui@pt; }
+#shift-tools button {
+    background-image: none; background-color: transparent; color: @dim@;
+    border: 1px solid transparent; border-radius: 5px; box-shadow: none;
+    padding: 2px 6px; min-width: 16px; min-height: 20px;
+    font-family: @uifont@; font-size: @ui@pt;
 }
-#paragraph-grip:hover { background-color: @sel@; color: @fg@; }
+#shift-tools button:hover { color: @fg@; background-color: @sel@; }
+#shift-tools button:disabled { opacity: 0.3; }
