@@ -190,8 +190,9 @@ nascoste temporaneamente. Il testo precedente e quello successivo restano comuni
 quella attiva. **+** aggiunge un'altra alternativa. Quella a sinistra è una
 copia di lettura della versione precedente: usa **‹** per attivarla e modificarla.
 **Esc** o **×** richiudono l'affiancamento conservando la variante scelta e
-ripristinano le barre laterali. Scrivere o cliccare su un altro paragrafo torna
-alla vista verticale. Una variante successiva può essere riaperta con **›**.
+ripristinano le barre laterali. Muoversi o cliccare su altri paragrafi mantiene
+aperto il confronto, senza ricentrare il documento o modificare la posizione
+del testo. Una variante successiva può essere riaperta con **›**.
 
 Soltanto la variante attiva occupa quel punto nel file Markdown e partecipa
 alla ricerca e ai conteggi. Le alternative sono salvate automaticamente in

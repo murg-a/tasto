@@ -49,12 +49,12 @@ x11.XFlush.argtypes=[ctypes.c_void_p]
 xtst.XTestFakeMotionEvent.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_int,ctypes.c_int,ctypes.c_ulong]
 xtst.XTestFakeButtonEvent.argtypes=[ctypes.c_void_p,ctypes.c_uint,ctypes.c_int,ctypes.c_ulong]
 display=x11.XOpenDisplay(None)
-def click(widget):
+def click(widget, settle=.3):
     px,py=widget.translate_coordinates(w,widget.get_allocated_width()//2,widget.get_allocated_height()//2)
     _,ox,oy=w.get_window().get_origin()
     xtst.XTestFakeMotionEvent(display,-1,ox+px,oy+py,0)
     xtst.XTestFakeButtonEvent(display,1,1,0);xtst.XTestFakeButtonEvent(display,1,0,0)
-    x11.XFlush(display);pump()
+    x11.XFlush(display);pump(settle)
 click(w.shift_next)
 assert w.shift_groups[0]['active']==1 and w.shift_preview.get_visible()
 rect=w.view.get_iter_location(w.buf.get_start_iter())
@@ -97,6 +97,54 @@ assert w.discard_shift()
 w.set_content(p.read_text(),str(p));pump();assert w.get_text()==saved
 assert w.shift_groups[0]['active']==2
 print('PASS multiple groups, moving anchors, document isolation and discard',flush=True)
+
+# Regression: native typing immediately after + in a long document, then navigation.
+x11.XSetInputFocus.argtypes=[ctypes.c_void_p,ctypes.c_ulong,ctypes.c_int,ctypes.c_ulong]
+x11.XKeysymToKeycode.argtypes=[ctypes.c_void_p,ctypes.c_ulong]
+x11.XKeysymToKeycode.restype=ctypes.c_uint
+xtst.XTestFakeKeyEvent.argtypes=[ctypes.c_void_p,ctypes.c_uint,ctypes.c_int,ctypes.c_ulong]
+x11.XSetInputFocus(display,w.get_window().get_xid(),2,0);x11.XFlush(display)
+def native_key(symbol):
+    code=x11.XKeysymToKeycode(display,symbol)
+    xtst.XTestFakeKeyEvent(display,code,1,0);xtst.XTestFakeKeyEvent(display,code,0,0)
+    x11.XFlush(display);pump()
+longfile=Path(root.name)/'long.md'
+longtext=''.join(f'Paragrafo {i:03} con testo.\n\n' for i in range(80))
+longfile.write_text(longtext)
+w.set_content(longtext,str(longfile));pump()
+position=longtext.index('Paragrafo 040')
+w.buf.place_cursor(w.buf.get_iter_at_offset(position));pump()
+w.view.scroll_to_mark(w.buf.get_insert(),0,True,.5,.5);pump()
+click(w.shift_add, settle=.01)
+assert w.get_focus() is w.view
+native_key(Gdk.KEY_x)
+assert w.get_text()[position:position+3]=='x\n\n'
+rect=w.view.get_iter_location(w.buf.get_iter_at_offset(position))
+_,cy=w.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET,rect.x,rect.y)
+assert abs(cy-w.view.get_allocated_height()/2)<40, (cy,w.document_viewport())
+identity=w._shift_open
+viewport=w.document_viewport()[1]
+native_key(Gdk.KEY_Down);native_key(Gdk.KEY_Down)
+assert w._shift_open==identity and abs(w.document_viewport()[1]-viewport)<2
+native_key(Gdk.KEY_Up);native_key(Gdk.KEY_Up)
+assert w._shift_open==identity and abs(w.document_viewport()[1]-viewport)<2
+# A click in a different paragraph must leave the comparison geometry unchanged.
+next_position=w.get_text().index('Paragrafo 041')+4
+rect=w.view.get_iter_location(w.buf.get_iter_at_offset(next_position))
+px,py=w.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET,rect.x+2,rect.y+5)
+px,py=w.view.translate_coordinates(w,px,py)
+_,ox,oy=w.get_window().get_origin()
+xtst.XTestFakeMotionEvent(display,-1,ox+px,oy+py,0)
+xtst.XTestFakeButtonEvent(display,1,1,0);xtst.XTestFakeButtonEvent(display,1,0,0)
+x11.XFlush(display);pump()
+assert w._shift_open==identity and abs(w.document_viewport()[1]-viewport)<2
+assert w.shift_context()[0] is None
+w.editor_sw.get_vadjustment().set_value(0);pump()
+assert w.shift_close.get_visible()
+click(w.shift_close)
+assert w._shift_open is None and w._shift_center_source==0
+assert w.view.get_top_margin()==48
+print('PASS immediate native typing after +, centered long document and stable click/arrow navigation',flush=True)
 
 # The last block can have an empty alternative and survive reopening.
 last=Path(root.name)/'last.md';last.write_text('Unico paragrafo')

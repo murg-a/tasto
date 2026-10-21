@@ -34,7 +34,8 @@ class ParagraphShift:
         self._shift_corrupt = False
         self._shift_warning = ''
         self._shift_sides = None
-        self._shift_layout_key = None
+        self._shift_format_key = None
+        self._shift_center_source = 0
 
     def shift_path(self, path=None):
         from .app import CONFIG_DIR
@@ -250,13 +251,16 @@ class ParagraphShift:
         return True
 
     def position_shift_widget(self, widget, x, y):
-        position = (max(0,int(x)), max(0,int(y)))
+        position = (max(0,int(x)), int(y))
         if self._shift_positions.get(widget) != position:
             self._shift_positions[widget] = position
             self.editor_overlay.queue_resize()
 
     def destroy_shift(self, *_):
         self._shift_destroyed = True
+        if self._shift_center_source:
+            GLib.source_remove(self._shift_center_source)
+            self._shift_center_source = 0
         if self._shift_idle:
             GLib.source_remove(self._shift_idle)
             self._shift_idle = 0
@@ -361,7 +365,10 @@ class ParagraphShift:
             self.shift_install(before)
             return False
         self._shift_busy = True
-        self.replace_document(text, a)
+        if self._viewport_restore:
+            GLib.source_remove(self._viewport_restore)
+            self._viewport_restore = 0
+        self.replace_document(text, a, preserve_viewport=False)
         self.shift_install(records)
         self._shift_busy = False
         if old != text:
@@ -376,7 +383,11 @@ class ParagraphShift:
             self.close_shift()
         self.view.grab_focus()
         self.queue_shift()
-        GLib.idle_add(self.center_shift)
+        if self._shift_center_source:
+            GLib.source_remove(self._shift_center_source)
+        # GtkTextView validates its new top margin on the next rendering frames.
+        # Center after those allocations, rather than reading the old rectangle.
+        self._shift_center_source = GLib.timeout_add(50, self.center_shift, selected['id'], priority=GLib.PRIORITY_LOW)
         return True
 
     def expand_shift(self):
@@ -388,20 +399,32 @@ class ParagraphShift:
         self.view.set_bottom_margin(max(120, self.view.get_allocated_height()//2))
         self.schedule_fit()
 
-    def center_shift(self):
+    def center_shift(self, identity):
+        self._shift_center_source = 0
         if self._shift_destroyed:
             return False
         context = self.shift_context()
-        if context:
-            self.view.scroll_to_iter(self.buf.get_iter_at_offset(context[1]), .1, True, .5, .5)
+        if context and context[0] and context[0]['id'] == identity:
+            # scroll_to_iter queues another GTK scroll and can race caret scrolling.
+            # The new allocation is now valid: align the final rectangle directly.
+            rect = self.view.get_iter_location(self.buf.get_iter_at_offset(context[1]))
+            adjustment = self.editor_sw.get_vadjustment()
+            # Buffer coordinates exclude the TextView's top margin.
+            _x, widget_y = self.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, rect.x, rect.y)
+            target = adjustment.get_value() + widget_y + rect.height/2 - self.view.get_allocated_height()/2
+            maximum = max(adjustment.get_lower(), adjustment.get_upper()-adjustment.get_page_size())
+            adjustment.set_value(max(adjustment.get_lower(),min(maximum,target)))
         self.queue_shift()
         return False
 
     def close_shift(self):
+        if self._shift_center_source:
+            GLib.source_remove(self._shift_center_source)
+            self._shift_center_source = 0
+        self._shift_format_key = None
         if hasattr(self, "view"):
             self.view.set_top_margin(48)
             self.view.set_bottom_margin(120)
-        self._shift_layout_key = None
         self._shift_open = None
         if hasattr(self, 'shift_preview'):
             self.shift_preview.hide()
@@ -423,84 +446,91 @@ class ParagraphShift:
 
     def layout_shift(self):
         self._shift_idle = 0
-        if self._shift_destroyed or not hasattr(self, 'shift_tools') or self._shift_busy:
+        if self._shift_destroyed or self._shift_busy:
             return False
-        context = self.shift_context()
-        if context is None or self._editing_note is not None:
-            self.shift_tools.hide()
-            if self._shift_open:
-                self.close_shift()
-            return False
-        group, a, b = context
-        key = (self.get_text(), a, b, group['id'] if group else None,
-               group['active'] if group else 0, self._shift_open, self.view.get_allocated_width(),
-               self.editor_sw.get_vadjustment().get_value(), self.cfg['size'], self.cfg['font'], self.cfg['width'], self.view.get_allocated_height(), self.view.get_left_margin(), self.view.get_right_margin())
-        if key == self._shift_layout_key:
-            return False
-        self._shift_layout_key = key
-        if self._shift_open and (group is None or group['id'] != self._shift_open):
-            self.close_shift()
-        start, end = self.buf.get_bounds()
-        for tag in (self.shift_margin, self.shift_header, self.shift_padding):
-            self.buf.remove_tag(tag, start, end)
         width = self.view.get_allocated_width()
         if width < 100:
             return False
-        split = bool(group and group['id'] == self._shift_open)
-        self.shift_preview.set_visible(split)
-        self.shift_close.set_visible(split)
-        it = self.buf.get_iter_at_offset(a)
-        tag_end = self.buf.get_iter_at_offset(min(self.buf.get_char_count(), max(b, a+1)))
+        context = self.shift_context()
+        # The comparison belongs to a paragraph, not to the insertion cursor.
+        # Moving through other paragraphs must not reflow or recenter the document.
+        opened = next((g for g in self.shift_groups if g['id'] == self._shift_open), None)
+        if self._shift_open and opened is None:
+            self.close_shift()
+        split = opened is not None
+        text = self.get_text()
+        a = self.buf.get_iter_at_mark(opened['start']).get_offset() if split else 0
+        b = self.buf.get_iter_at_mark(opened['end']).get_offset() if split else 0
+        half, gap = width//2, 28
+        column = max(100, min(self.cfg['width'], half-gap-24))
+        left = max(16, half-gap-column)
+        right_start = half+gap
+        format_key = (self._shift_open, a, b, text, width, self.cfg['size'], self.cfg['font'], self.cfg['width'])
+        if format_key != self._shift_format_key:
+            start, end = self.buf.get_bounds()
+            for tag in (self.shift_margin, self.shift_header, self.shift_padding):
+                self.buf.remove_tag(tag, start, end)
+            if split:
+                it = self.buf.get_iter_at_offset(a)
+                tag_end = self.buf.get_iter_at_offset(min(len(text), max(b, a+1)))
+                self.shift_margin.set_property('left-margin', right_start)
+                self.shift_margin.set_property('right-margin', max(20, width-right_start-column))
+                self.buf.apply_tag(self.shift_margin, it, tag_end)
+                self.buf.apply_tag(self.shift_header, it, self.buf.get_iter_at_offset(min(a+1,len(text))))
+                previous = opened['versions'][opened['active']-1]
+                preview_buffer = self.shift_preview.get_buffer()
+                if preview_buffer.get_text(*preview_buffer.get_bounds(),True) != previous:
+                    preview_buffer.set_text(previous)
+                from gi.repository import Pango
+                layout = self.shift_preview.create_pango_layout(previous)
+                layout.set_width(max(80,column-24)*Pango.SCALE)
+                layout.set_wrap(Pango.WrapMode.WORD_CHAR)
+                preview_height = layout.get_pixel_size()[1]+16
+                self.shift_preview.set_size_request(column,preview_height)
+                first_rect = self.view.get_iter_location(it)
+                last_rect = self.view.get_iter_location(self.buf.get_iter_at_offset(b))
+                padding = max(0,preview_height-(last_rect.y-first_rect.y+last_rect.height))
+                self.shift_padding.set_property('pixels-below-lines',padding+8)
+                line_start = self.buf.get_iter_at_offset(b)
+                line_start.set_line_offset(0)
+                self.buf.apply_tag(self.shift_padding,line_start,tag_end)
+            self._shift_format_key = format_key
+        preview_visible = close_visible = False
         if split:
-            half = width // 2
-            gap = 28
-            column = max(100, min(self.cfg['width'], half-gap-24))
-            left = max(16, half-gap-column)
-            right_start = half+gap
-            self.shift_margin.set_property('left-margin', right_start)
-            self.shift_margin.set_property('right-margin', max(20, width-right_start-column))
-            self.buf.apply_tag(self.shift_margin, it, tag_end)
-            self.buf.apply_tag(self.shift_header, it, self.buf.get_iter_at_offset(min(a+1,self.buf.get_char_count())))
-            previous = group['versions'][group['active']-1]
-            if self.shift_preview.get_buffer().get_text(*self.shift_preview.get_buffer().get_bounds(), True) != previous:
-                self.shift_preview.get_buffer().set_text(previous)
-            self.shift_preview.set_size_request(column, -1)
-        rect = self.view.get_iter_location(it)
-        x, y = self.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET, rect.x, rect.y)
-        if y < 0 or y > self.view.get_allocated_height()-20:
+            rect = self.view.get_iter_location(self.buf.get_iter_at_offset(a))
+            _x, y = self.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET,rect.x,rect.y)
+            preview_height = self.shift_preview.get_size_request().height
+            if y < self.view.get_allocated_height() and y+preview_height > 0:
+                self.position_shift_widget(self.shift_preview,left,y)
+                preview_visible = True
+            # Keep an exit available even after the compared paragraph scrolls away.
+            self.position_shift_widget(self.shift_close,width-36,8)
+            close_visible = True
+        self.shift_preview.set_visible(preview_visible)
+        self.shift_close.set_visible(close_visible)
+        if context is None or self._editing_note is not None:
             self.shift_tools.hide()
-            self.shift_preview.hide()
-            self.shift_close.hide()
+            return False
+        group, start_offset, _end_offset = context
+        rect = self.view.get_iter_location(self.buf.get_iter_at_offset(start_offset))
+        x,y = self.view.buffer_to_window_coords(Gtk.TextWindowType.WIDGET,rect.x,rect.y)
+        in_comparison = bool(split and group is opened)
+        if y < 0 or y > self.view.get_allocated_height()-30:
+            self.shift_tools.hide()
             return False
         active = group['active'] if group else 0
         count = len(group['versions']) if group else 1
-        self.shift_prev.set_sensitive(active > 0)
-        self.shift_next.set_sensitive(active+1 < count)
+        self.shift_prev.set_sensitive(active>0)
+        self.shift_next.set_sensitive(active+1<count)
         self.shift_count.set_text(f'{active+1} / {count}' if group else '')
         for child in self.shift_tools.get_children():
             child.show_all()
+        for child in (self.shift_prev,self.shift_next,self.shift_count):
+            child.set_visible(group is not None)
         self.shift_tools.show()
-        for widget in (self.shift_prev, self.shift_next, self.shift_count):
-            widget.set_visible(group is not None)
-        # Controls belong only to the paragraph containing the insertion cursor.
-        self.position_shift_widget(self.shift_tools, max(4, min(width-(210 if group else 65), x if split else width-self.view.get_right_margin()+8)), y-34 if split else y)
-        if split:
-            self.position_shift_widget(self.shift_preview, left, y)
-            self.position_shift_widget(self.shift_close, width-36, y-34)
-            # Reserve enough document height for the longer of the two alternatives.
-            layout = self.shift_preview.create_pango_layout(previous)
-            from gi.repository import Pango
-            layout.set_width(max(80,column-24)*Pango.SCALE)
-            layout.set_wrap(Pango.WrapMode.WORD_CHAR)
-            preview_height = layout.get_pixel_size()[1]+16
-            self.shift_preview.set_size_request(column, preview_height)
-            last = self.view.get_iter_location(self.buf.get_iter_at_offset(b))
-            active_height = last.y-rect.y+last.height
-            padding = max(0,preview_height-active_height)
-            self.shift_padding.set_property('pixels-below-lines', padding+8)
-            line_start = self.buf.get_iter_at_offset(b)
-            line_start.set_line_offset(0)
-            self.buf.apply_tag(self.shift_padding,line_start,tag_end)
+        tool_x = x if in_comparison else width-self.view.get_right_margin()+8
+        self.position_shift_widget(self.shift_tools,max(4,min(width-(210 if group else 65),tool_x)),
+                                   max(0,y-34 if in_comparison else y))
         return False
 
     def shift_before_undo(self, redo):

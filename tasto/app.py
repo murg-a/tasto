@@ -1921,7 +1921,7 @@ class Tasto(Gtk.Window, ParagraphShift):
         # Dopo la validazione del layout, altrimenti GtkTextView riposiziona la vista.
         self._viewport_restore = GLib.idle_add(restore, priority=GLib.PRIORITY_LOW)
 
-    def replace_document(self, text, cursor):
+    def replace_document(self, text, cursor, preserve_viewport=True):
         position = self.document_viewport()
         original = self.get_text()
         # Sostituisce solo l'intervallo cambiato: preserva i mark e il layout
@@ -1945,7 +1945,8 @@ class Tasto(Gtk.Window, ParagraphShift):
         finally:
             self.buf.end_user_action()
             self._mutating_notes = was_mutating
-        self.restore_document_viewport(position)
+        if preserve_viewport:
+            self.restore_document_viewport(position)
 
     def activate_note_shortcut(self, *_):
         if self._editing_note is not None or self.splash.get_visible():
