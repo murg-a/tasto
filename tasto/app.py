@@ -27,6 +27,7 @@ verranno usati i tuoi.
 """
 
 import bisect
+from .formatting import format_edit
 from pathlib import Path
 import json
 import math
@@ -122,8 +123,8 @@ CSS = Path(__file__).with_name("style.css").read_text(encoding="utf-8")
 
 def extra_css():
     """Ogni campione mostra sfondo e carattere del proprio tema."""
-    return "\n".join(f"#bar button.sq.sq-{key} {{ background-color: {THEMES[key]['bg']}; }} "
-                     f"#bar button.sq.sq-{key} label {{ color: {THEMES[key]['fg']}; }}"
+    return "\n".join(f"#bar button.sq.sq-{key}, #pop button.sq.sq-{key} {{ background-color: {THEMES[key]['bg']}; }} "
+                     f"#bar button.sq.sq-{key} label, #pop button.sq.sq-{key} label {{ color: {THEMES[key]['fg']}; }}"
                      for key in THEME_ORDER)
 
 
@@ -135,6 +136,8 @@ QUOTE = re.compile(r"^\s{0,3}>")
 LIST = re.compile(r"^\s*([-+*]|\d{1,3}[.)])(?=\s)")
 LINK = re.compile(r"(\[[^\]\n]+\])(\([^)\n]+\))")
 INLINE = [
+    (re.compile(r"~~[^~\n]+~~"), "strike"),
+    (re.compile(r"<u>[^\n]+?</u>"), "underline"),
     (re.compile(r"\*\*[^*\n]+\*\*"), "bold"),
     (re.compile(r"(?<!\*)\*(?!\s)[^*\n]+(?<!\s)\*(?!\*)"), "ital"),
     (re.compile(r"(?<![\w_])_(?!\s)[^_\n]+(?<!\s)_(?![\w_])"), "ital"),
@@ -580,6 +583,8 @@ class Tasto(Gtk.Window):
         self.tags = {
             "bold": b.create_tag("bold", weight=Pango.Weight.BOLD),
             "ital": b.create_tag("ital", style=Pango.Style.ITALIC),
+            "strike": b.create_tag("strike", strikethrough=True),
+            "underline": b.create_tag("underline", underline=Pango.Underline.SINGLE),
             "code": b.create_tag("code", family=CODE_FAMILY),
             "quote": b.create_tag("quote"),
             "list": b.create_tag("list"),
@@ -819,8 +824,10 @@ class Tasto(Gtk.Window):
         left = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self.side_btn = self.icon_button(("sidebar-show-symbolic", "view-list-symbolic"), "☰",
                                          "Mostra o nascondi l'indice (F9)", self.toggle_sidebar)
-        self.insert_btn = self.button("Inserisci", "Inserisci ASCII art (F8)", self.show_insert)
+        self.format_btn = self.glyph_button("+", "Formatta il testo selezionato o il paragrafo", self.show_format)
+        self.insert_btn = self.button("ASCII", "Inserisci ASCII art (F8)", self.show_insert)
         left.pack_start(self.side_btn, False, False, 0)
+        left.pack_start(self.format_btn, False, False, 0)
         self.info_btn = self.glyph_button("i", "Istruzioni per il markdown (F1)", self.show_help)
         left.pack_start(self.info_btn, False, False, 0)
         left.pack_start(self.insert_btn, False, False, 0)
@@ -846,13 +853,8 @@ class Tasto(Gtk.Window):
             right.pack_start(widget, False, False, 0)
             return widget
 
-        self.theme_btns = {}
-        for name in THEME_ORDER:
-            btn = self.button("t", "Tema " + THEMES[name]["label"], lambda n=name: self.set_theme(n))
-            ctx = btn.get_style_context()
-            ctx.add_class("sq")
-            ctx.add_class("sq-" + name)
-            self.theme_btns[name] = add(btn)
+        self.theme_btn = add(self.button("t", "Scegli tema", self.show_themes))
+        self.theme_btn.get_style_context().add_class("sq")
         self.color_btn = add(self.glyph_button("✱", "Colora gli elementi del markdown",
                                                self.toggle_colors), 12)
         self.sound_btn = add(self.glyph_button("T", "Suono di macchina da scrivere",
@@ -864,6 +866,8 @@ class Tasto(Gtk.Window):
             ("sidebar-show-right-symbolic", "view-dual-symbolic"), "▥",
             "Mostra o nascondi gli appunti (F10)", self.toggle_notes))
 
+        self.theme_menu = self.build_theme_menu()
+        self.format_menu = self.build_format_menu()
         self.insert_menu = self.build_insert_menu()
         self.settings_menu = self.build_settings_menu()
         self.help_menu = self.build_help_menu()
@@ -926,6 +930,60 @@ class Tasto(Gtk.Window):
         self.view.grab_focus()
 
     # --- Menu a comparsa (seguono il tema) ----------------------------------------------
+
+    def build_theme_menu(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_border_width(12)
+        box.pack_start(self.small_heading("Tema"), False, False, 0)
+        self.theme_btns = {}
+        for name in THEME_ORDER:
+            button = self.button("t  ·  " + THEMES[name]["label"],
+                                 "Seleziona " + THEMES[name]["label"],
+                                 lambda n=name: self.choose_theme(n))
+            button.get_style_context().add_class("sq")
+            button.get_style_context().add_class("sq-" + name)
+            box.pack_start(button, False, False, 0)
+            self.theme_btns[name] = button
+        return self.make_menu(box)
+
+    def show_themes(self):
+        self.open_menu(self.theme_menu, self.theme_btn, "end")
+
+    def choose_theme(self, name):
+        self.set_theme(name)
+        self.close_menu()
+
+    def build_format_menu(self):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        box.set_border_width(12)
+        box.pack_start(self.small_heading("Formato"), False, False, 0)
+        for label, command in (("B  ·  Grassetto", "bold"), ("I  ·  Corsivo", "italic"),
+                               ("U  ·  Sottolineato", "underline"), ("S  ·  Barrato", "strike"),
+                               ("•  ·  Elenco puntato", "bullet"), ("1. ·  Elenco numerato", "number"),
+                               ("→  ·  Aumenta rientro", "indent"), ("←  ·  Riduci rientro", "outdent")):
+            box.pack_start(self.button(label, label, lambda c=command: self.format_text(c)), False, False, 0)
+        return self.make_menu(box)
+
+    def show_format(self):
+        self.open_menu(self.format_menu, self.format_btn, "start")
+
+    def format_text(self, command):
+        bounds = self.buf.get_selection_bounds()
+        if bounds:
+            start, end = (it.get_offset() for it in bounds)
+        else:
+            start = end = self.buf.get_iter_at_mark(self.buf.get_insert()).get_offset()
+        a, b, replacement, sel_a, sel_b = format_edit(self.get_text(), start, end, command)
+        self.buf.begin_user_action()
+        try:
+            self.buf.delete(self.buf.get_iter_at_offset(a), self.buf.get_iter_at_offset(b))
+            self.buf.insert(self.buf.get_iter_at_offset(a), replacement)
+            self.buf.select_range(self.buf.get_iter_at_offset(a + sel_a),
+                                  self.buf.get_iter_at_offset(a + sel_b))
+        finally:
+            self.buf.end_user_action()
+        self.close_menu()
+        self.view.grab_focus()
 
     def build_insert_menu(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
@@ -1102,10 +1160,16 @@ class Tasto(Gtk.Window):
         for tag in self.t_h:
             self.paint(tag, syn.get("head"))
         for key, color in (("bold", "bold"), ("ital", "ital"), ("code", "code"),
-                           ("quote", "quote"), ("list", "list"), ("linktext", "link")):
+                           ("quote", "quote"), ("list", "list"), ("linktext", "link"),
+                           ("strike", "bold"), ("underline", "ital")):
             self.paint(self.tags[key], syn.get(color))
         self.paint(self.tags["linkurl"], th["dim"] if c["colors"] else None)
 
+        ctx = self.theme_btn.get_style_context()
+        for name in THEME_ORDER:
+            ctx.remove_class("sq-" + name)
+        ctx.add_class("sq-" + c["theme"])
+        self.theme_btn.set_tooltip_text("Tema: " + th["label"] + " · Scegli tema")
         for name, btn in self.theme_btns.items():
             self.flag(btn, name == c["theme"])
         self.flag(self.side_btn, c["sidebar"])

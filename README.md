@@ -59,8 +59,9 @@ vengono modificati o importati automaticamente.
 
 ## Temi
 
-Nella barra inferiore, ogni riquadro con una `t` mostra lo sfondo e il colore
-del testo del tema; passando con il mouse compare il nome:
+Nella barra inferiore trovi un solo riquadro con una `t`: mostra il tema
+corrente. Cliccalo per aprire la scelta dei sette temi; selezionandone uno
+il menu si chiude e il riquadro si aggiorna:
 
 - **Chiaro**: nero su bianco.
 - **Ghiaccio**: blu ardesia su bianco freddo.
@@ -73,9 +74,25 @@ del testo del tema; passando con il mouse compare il nome:
 Il tema viene ricordato alla chiusura. Attiva il pulsante **✱** per vedere
 anche i colori Markdown specifici del tema.
 
+## Menu + e formattazione
+
+Il pulsante **+** a sinistra apre i comandi di formattazione:
+
+- Grassetto (`**testo**`), corsivo (`_testo_`), sottolineato (`<u>testo</u>`) e barrato (`~~testo~~`).
+- Elenco puntato, elenco numerato e aumento/riduzione del rientro (quattro spazi).
+
+Seleziona il testo e scegli il comando. Senza selezione, i formati in linea
+inseriscono i marcatori attorno al cursore; elenchi e rientri agiscono sulla
+riga corrente. Con più righe selezionate agiscono su tutte le righe coinvolte.
+Ogni comando è una singola operazione annullabile con Ctrl+Z.
+Il sottolineato usa HTML perché Markdown non ha una sintassi standard dedicata.
+Il pulsante **ASCII** e F8 mantengono accessibile il precedente menu di elementi ASCII.
+Le note a margine non sono ancora incluse nel menu +.
+
 ## Sviluppo
 
 - `tasto/app.py`: base GTK importata da `scrivi3.py`, adattata al nome e ai percorsi Tasto.
+- `tasto/formatting.py`: trasformazioni Markdown usate dal menu +.
 - `tasto/style.css`: stile estratto dal file originale; i segnaposto `@bg@`,
   `@fg@`, ecc. sono sostituiti da Python in base al tema.
 - `tasto/document.py`: componente del precedente prototipo, conservato ma non
@@ -84,7 +101,7 @@ anche i colori Markdown specifici del tema.
 - `tests/test_imported_source.py`: controlli di integrazione sul codice importato e sul CSS.
 
 Da completare rispetto al progetto originale: cinque livelli di
-titoli, menu di formattazione completo, sostituzione, spostamento delle sezioni,
+titoli, sostituzione, spostamento delle sezioni,
 note a margine e modifica degli appunti. Attualmente eliminare un appunto non
 richiede conferma.
 
@@ -98,3 +115,6 @@ verificati su Linux. I test automatici senza display non ne sostituiscono il col
 
 Verifica aggiuntiva eseguita: il parser CSS di GTK 3 accetta tutte le 21
 combinazioni dei sette temi e dei tre font. Questo non verifica il rendering.
+
+Il collegamento della formattazione è stato verificato anche con un vero
+Gtk.TextBuffer (grassetto, sottolineato, elenco numerato), senza finestra.
